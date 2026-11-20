@@ -1,4 +1,13 @@
-# Gogamen (Noesis) — semilla de Backlog.md v3
+# Gogamen — Semilla de Backlog.md v3
+
+> **Gogamen** (del euskera *gogamen*: mente, intelecto y facultad cognitiva en acción) es un framework de computación cognitiva, adaptativa y funcional de propósito general para inteligencias situadas.  
+> Concebido en la propuesta inicial bajo el nombre provisional de *Noesis*.
+>
+> * **Repositorio**: [Rubentxu/gogamen](https://github.com/Rubentxu/gogamen)
+> * **Licencia**: [MIT License](LICENSE)
+> * **Diseño original y exploración del DSL**: [`ChatGPT_Diseñar-lenguaje-DSL_20261120-1105.md`](ChatGPT_Diseñar-lenguaje-DSL_20261120-1105.md)
+
+---
 
 Paquete de inicialización para un proyecto nuevo, no repositorio ejecutable del motor. Fecha de propuesta: 2026-11-20. **117 tareas** con 351 AC, DoD explícito, dependencias técnicas, 6 documentos nativos a importar y 13 decisiones `proposed`. Nada se declara implementado ni Done. Sustituye la semilla v2: conserva sus 92 alias de diseño, refina 6 tarjetas y añade 25. **Solo para un tablero virgen o una importación parcial de v3**. Si se importó v2, usar la conciliación descrita abajo (para v1 se requiere comparar la semilla v1 con v3; el delta incluido solo cubre v2): no ejecutar la semilla sobre trabajo existente sin revisar. Los alias NOE-xxx son claves del paquete, NO IDs Backlog reales. Tras importar, Backlog.md pasa a ser la única autoridad; eliminar o guardar este ZIP fuera del repositorio de código, no mantenerlo sincronizado.
 
