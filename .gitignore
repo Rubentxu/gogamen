@@ -1,0 +1,14 @@
+# Package archives
+*.zip
+*.tar.gz
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+
+# Logs and system
+*.log
+.DS_Store
+Thumbs.db

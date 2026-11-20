@@ -1,0 +1,2503 @@
+[
+  {
+    "key": "NOE-001",
+    "phase": "M0",
+    "priority": "high",
+    "size": "standard",
+    "dependencies": [],
+    "title": "Workspace Rust reproducible",
+    "description": "Crear workspace mínimo core, labs y CLI con toolchain fijada, sin dependencias de IA ni render.",
+    "acceptance": [
+      "cargo test --workspace funciona offline tras resolver dependencias.",
+      "fmt y clippy --workspace se ejecutan sin warnings nuevos.",
+      "README muestra comando único para ejecutar smoke local y CI."
+    ],
+    "dod": [
+      "Ejecutar los oráculos/tests pertinentes a cada AC y registrar evidencia real en Backlog.md.",
+      "Actualizar contratos y documentación pública afectados; no declarar Done con comprobaciones relevantes NOT_RUN."
+    ]
+  },
+  {
+    "key": "NOE-002",
+    "phase": "M0",
+    "priority": "high",
+    "size": "standard",
+    "dependencies": [
+      "NOE-001"
+    ],
+    "title": "Contratos de dominio y unidades",
+    "description": "Definir ADT State, Action, Observation, Tick, Duration, Transition y Terminal; usar tipos de unidad y errores explícitos. Contratos comunes no presuponen un agente: System se añadirá encima; world/action son capacidades core.",
+    "acceptance": [
+      "Tests rechazan dt no válido, NaN y acciones fuera de rango.",
+      "Tipos no dependen de Bevy, HTTP ni proveedor.",
+      "Rustdoc describe mutabilidad, unidades y semántica de terminal."
+    ],
+    "dod": [
+      "Ejecutar los oráculos/tests pertinentes a cada AC y registrar evidencia real en Backlog.md.",
+      "Actualizar contratos y documentación pública afectados; no declarar Done con comprobaciones relevantes NOT_RUN."
+    ]
+  },
+  {
+    "key": "NOE-003",
+    "phase": "M0",
+    "priority": "high",
+    "size": "standard",
+    "dependencies": [
+      "NOE-002"
+    ],
+    "title": "Separar modelo simulado de entorno vivo",
+    "description": "Definir generative model con step(state,action,rng) y environment con observe/apply; no compartir capacidad de actuación.",
+    "acceptance": [
+      "Test de compilación o arquitectura impide al planner obtener actuador.",
+      "Modelo de juguete ejecuta estado sucesor sin mutar origen.",
+      "Errores de transición y aplicación son distinguibles."
+    ],
+    "dod": [
+      "Ejecutar los oráculos/tests pertinentes a cada AC y registrar evidencia real en Backlog.md.",
+      "Actualizar contratos y documentación pública afectados; no declarar Done con comprobaciones relevantes NOT_RUN."
+    ]
+  },
+  {
+    "key": "NOE-004",
+    "phase": "M0",
+    "priority": "high",
+    "size": "standard",
+    "dependencies": [
+      "NOE-002"
+    ],
+    "title": "Semillas y reloj determinista",
+    "description": "Definir streams RNG por episodio, agente y walker, reloj lógico y dt fijo.",
+    "acceptance": [
+      "Misma configuración/semilla da mismo trace hash en mismo build y plataforma.",
+      "Reordenar ejecución independiente no cambia streams individuales.",
+      "Verificación registra seed, build y plataforma sin prometer determinismo transversal."
+    ],
+    "dod": [
+      "Ejecutar los oráculos/tests pertinentes a cada AC y registrar evidencia real en Backlog.md.",
+      "Actualizar contratos y documentación pública afectados; no declarar Done con comprobaciones relevantes NOT_RUN."
+    ]
+  },
+  {
+    "key": "NOE-005",
+    "phase": "M0",
+    "priority": "high",
+    "size": "standard",
+    "dependencies": [
+      "NOE-003",
+      "NOE-004"
+    ],
+    "title": "Snapshots ramificables",
+    "description": "Contrato snapshot/fork/restore con estado suficiente, incluyendo RNG y terminal.",
+    "acceptance": [
+      "Fork A y B divergen sin contaminación; restore reproduce próxima transición.",
+      "Test detecta snapshot incompleto con entorno de fixture.",
+      "Métrica mide bytes por snapshot y latencia de fork sin optimizar prematuramente."
+    ],
+    "dod": [
+      "Ejecutar los oráculos/tests pertinentes a cada AC y registrar evidencia real en Backlog.md.",
+      "Actualizar contratos y documentación pública afectados; no declarar Done con comprobaciones relevantes NOT_RUN."
+    ]
+  },
+  {
+    "key": "NOE-006",
+    "phase": "M0",
+    "priority": "high",
+    "size": "standard",
+    "dependencies": [
+      "NOE-002"
+    ],
+    "title": "Presupuesto y resultado del planificador",
+    "description": "Definir PlanRequest, PlanResult, presupuesto en transiciones y deadline monotónico, status y fallback seguro.",
+    "acceptance": [
+      "Se distingue completado, agotado, cancelado y sin acción válida.",
+      "Un planner de fixture respeta máximo de transiciones.",
+      "El runtime nunca interpreta ausencia de plan como autorización."
+    ],
+    "dod": [
+      "Ejecutar los oráculos/tests pertinentes a cada AC y registrar evidencia real en Backlog.md.",
+      "Actualizar contratos y documentación pública afectados; no declarar Done con comprobaciones relevantes NOT_RUN."
+    ]
+  },
+  {
+    "key": "NOE-007",
+    "phase": "M0",
+    "priority": "high",
+    "size": "standard",
+    "dependencies": [
+      "NOE-003",
+      "NOE-006"
+    ],
+    "title": "Guardia independiente de acción",
+    "description": "Validar precondiciones, límites, autorización y caducidad de la acción antes de actuar.",
+    "acceptance": [
+      "Acción inválida y propuesta antigua se rechazan en fixture.",
+      "Fallback explícito seguro o no-op según dominio.",
+      "Ninguna observación semántica altera la guardia."
+    ],
+    "dod": [
+      "Ejecutar los oráculos/tests pertinentes a cada AC y registrar evidencia real en Backlog.md.",
+      "Actualizar contratos y documentación pública afectados; no declarar Done con comprobaciones relevantes NOT_RUN."
+    ]
+  },
+  {
+    "key": "NOE-063",
+    "phase": "M0",
+    "priority": "high",
+    "size": "standard",
+    "dependencies": [
+      "NOE-002"
+    ],
+    "title": "Sistema general de transición tipada",
+    "description": "Core: System/State/Input/Output y ProposedEffect; composición directa sin agentes ni IA. Contrato puro con estado propio y contexto explícito.",
+    "acceptance": [
+      "Un contador y una transformación de eventos producen resultados esperados sin cargar cognición ni simulación.",
+      "Efectos propuestos no ejecutan IO; errores tipados sin mutar estado previo.",
+      "Fixture prueba composición de dos sistemas y rustdoc describe ownership."
+    ],
+    "dod": [
+      "Ejecutar los oráculos/tests pertinentes a cada AC y registrar evidencia real en Backlog.md.",
+      "Actualizar contratos y documentación pública afectados; no declarar Done con comprobaciones relevantes NOT_RUN."
+    ]
+  },
+  {
+    "key": "NOE-064",
+    "phase": "M0",
+    "priority": "high",
+    "size": "standard",
+    "dependencies": [
+      "NOE-063"
+    ],
+    "title": "Plan de conexiones y causalidad",
+    "description": "Core: grafo de puertos tipados; resolver DAG de dependencias instantáneas, permitir realimentación explícita con delay y estado.",
+    "acceptance": [
+      "Conexión de tipos incompatibles falla con ruta de diagnóstico.",
+      "Ciclo instantáneo rechazado y ciclo con delay reproduce secuencia esperada.",
+      "Orden estable e índices resueltos al preparar, sin búsquedas por nombre en tick."
+    ],
+    "dod": [
+      "Ejecutar los oráculos/tests pertinentes a cada AC y registrar evidencia real en Backlog.md.",
+      "Actualizar contratos y documentación pública afectados; no declarar Done con comprobaciones relevantes NOT_RUN."
+    ]
+  },
+  {
+    "key": "NOE-065",
+    "phase": "M0",
+    "priority": "high",
+    "size": "standard",
+    "dependencies": [
+      "NOE-004",
+      "NOE-006"
+    ],
+    "title": "Relojes monotónico y virtual",
+    "description": "Core: abstraer reloj lógico y reloj monotónico, plazos, unidades y tiempos vencidos; no usar wall-clock para deadline.",
+    "acceptance": [
+      "Reloj de fixture permite avanzar y simular expiración sin dormir.",
+      "Retrocesos de reloj civil no alteran deadline monotónico.",
+      "Replay por unidades de trabajo distingue trazas temporales no deterministas."
+    ],
+    "dod": [
+      "Ejecutar los oráculos/tests pertinentes a cada AC y registrar evidencia real en Backlog.md.",
+      "Actualizar contratos y documentación pública afectados; no declarar Done con comprobaciones relevantes NOT_RUN."
+    ]
+  },
+  {
+    "key": "NOE-066",
+    "phase": "M0",
+    "priority": "high",
+    "size": "standard",
+    "dependencies": [
+      "NOE-064",
+      "NOE-065"
+    ],
+    "title": "Scheduler de ticks y eventos",
+    "description": "Core: scheduler local de sistemas con orden estable, activaciones periódicas y por evento; separar prepare/start/step/stop.",
+    "acceptance": [
+      "Fixture de dos tareas a diferente frecuencia dispara en ticks esperados.",
+      "Eventos en cola no ejecutan recursión sin límite; orden de desempate documentado.",
+      "Arranque y parada liberan recursos; fixture puro sin red ni UI."
+    ],
+    "dod": [
+      "Ejecutar los oráculos/tests pertinentes a cada AC y registrar evidencia real en Backlog.md.",
+      "Actualizar contratos y documentación pública afectados; no declarar Done con comprobaciones relevantes NOT_RUN."
+    ]
+  },
+  {
+    "key": "NOE-008",
+    "phase": "M0",
+    "priority": "high",
+    "size": "standard",
+    "dependencies": [
+      "NOE-003",
+      "NOE-004",
+      "NOE-006",
+      "NOE-007",
+      "NOE-066"
+    ],
+    "title": "Bucle observe-plan-act ejecutable",
+    "description": "Crear runtime headless con horizonte recedente y registro mínimo de observaciones, decisión y resultado. Bucle adaptativo implementado como composición del scheduler general, no un runtime alternativo.",
+    "acceptance": [
+      "CLI ejecuta 100 ticks en mundo 1D con acción aplicada una vez por tick.",
+      "Deadline vencido usa fallback y queda registrado.",
+      "Trace permite localizar decisión, seed y causa de rechazo."
+    ],
+    "dod": [
+      "Ejecutar los oráculos/tests pertinentes a cada AC y registrar evidencia real en Backlog.md.",
+      "Actualizar contratos y documentación pública afectados; no declarar Done con comprobaciones relevantes NOT_RUN."
+    ]
+  },
+  {
+    "key": "NOE-067",
+    "phase": "M0",
+    "priority": "high",
+    "size": "standard",
+    "dependencies": [
+      "NOE-063"
+    ],
+    "title": "Contrato de capacidades y efectos de módulos",
+    "description": "Core: catálogo de operaciones, puertos, versiones, permisos, efectos y perfil temporal; distinguir propiedad declarada de evidencia observada.",
+    "acceptance": [
+      "Operación no registrada o versión incompatible devuelve diagnóstico.",
+      "Grafo temporal rechaza IO bloqueante declarado en ruta acotada.",
+      "Módulo integrado y módulo de tercero usan mismo contrato sin elevar permisos."
+    ],
+    "dod": [
+      "Ejecutar los oráculos/tests pertinentes a cada AC y registrar evidencia real en Backlog.md.",
+      "Actualizar contratos y documentación pública afectados; no declarar Done con comprobaciones relevantes NOT_RUN."
+    ]
+  },
+  {
+    "key": "NOE-068",
+    "phase": "M0",
+    "priority": "high",
+    "size": "standard",
+    "dependencies": [
+      "NOE-064",
+      "NOE-067"
+    ],
+    "title": "Spec portable SystemSpec v0",
+    "description": "Formato declarativo JSON versionado en Rust para sistemas, puertos y configuración; AgentSpec y ExperimentSpec componen SystemSpec. Sin DSL ni código arbitrario.",
+    "acceptance": [
+      "Dos nodos y una conexión se serializan y reconstruyen sin pérdida semántica.",
+      "Se rechazan schema incompatible, tipos/IDs inválidos y campos desconocidos según política explícita.",
+      "Esquema y fixture canónico compartibles con futuros frontends."
+    ],
+    "dod": [
+      "Ejecutar los oráculos/tests pertinentes a cada AC y registrar evidencia real en Backlog.md.",
+      "Actualizar contratos y documentación pública afectados; no declarar Done con comprobaciones relevantes NOT_RUN."
+    ]
+  },
+  {
+    "key": "NOE-069",
+    "phase": "M0",
+    "priority": "high",
+    "size": "standard",
+    "dependencies": [
+      "NOE-068"
+    ],
+    "title": "Compilar Spec a plan resuelto",
+    "description": "Compilador Rust: validar grafo, capacidades y unidades; resolver ids/factories y constantes; plan inmutable separado del estado.",
+    "acceptance": [
+      "Spec inválida no inicia ningún recurso ni actuador.",
+      "Plan contiene índices y operaciones resueltas; sin parseo ni resolución de nombres durante step.",
+      "Dos escrituras canónicas equivalentes generan mismo fingerprint semántico en versión fija."
+    ],
+    "dod": [
+      "Ejecutar los oráculos/tests pertinentes a cada AC y registrar evidencia real en Backlog.md.",
+      "Actualizar contratos y documentación pública afectados; no declarar Done con comprobaciones relevantes NOT_RUN."
+    ]
+  },
+  {
+    "key": "NOE-070",
+    "phase": "M0",
+    "priority": "high",
+    "size": "standard",
+    "dependencies": [
+      "NOE-069",
+      "NOE-066"
+    ],
+    "title": "Instanciar plan y ejecutar sin frontend",
+    "description": "Runtime Rust consume plan, crea estados independientes y buffers; ejecutar sistema convencional desde JSON y API Rust.",
+    "acceptance": [
+      "Dos instancias comparten definición sin compartir estado mutable.",
+      "CLI ejecuta mismo fixture por JSON y API Rust con trace equivalente.",
+      "Ejecutable no necesita JVM, red, Jev, ni parser de Kotlin."
+    ],
+    "dod": [
+      "Ejecutar los oráculos/tests pertinentes a cada AC y registrar evidencia real en Backlog.md.",
+      "Actualizar contratos y documentación pública afectados; no declarar Done con comprobaciones relevantes NOT_RUN."
+    ]
+  },
+  {
+    "key": "NOE-009",
+    "phase": "M1",
+    "priority": "high",
+    "size": "standard",
+    "dependencies": [
+      "NOE-005",
+      "NOE-008"
+    ],
+    "title": "Mundo Grid con callejón y obstáculos",
+    "description": "Grid discreto con metas y transición verificable, sin dependencias de UI.",
+    "acceptance": [
+      "Mapa con callejón requiere retroceder para alcanzar salida.",
+      "Fixture cubre paredes, terminal, reward y observación parcial desactivable.",
+      "CLI reproduce mismo episodio por seed."
+    ],
+    "dod": [
+      "Ejecutar los oráculos/tests pertinentes a cada AC y registrar evidencia real en Backlog.md.",
+      "Actualizar contratos y documentación pública afectados; no declarar Done con comprobaciones relevantes NOT_RUN."
+    ]
+  },
+  {
+    "key": "NOE-010",
+    "phase": "M1",
+    "priority": "high",
+    "size": "standard",
+    "dependencies": [
+      "NOE-009"
+    ],
+    "title": "Baselines aleatorio y BFS",
+    "description": "Implementar random seed y BFS de información completa como control/techo, con igual presupuesto reportado.",
+    "acceptance": [
+      "BFS alcanza meta en mapa resoluble y reporta no-path si cerrado.",
+      "Random tiene resultado reproducible; BFS queda marcado privilegiado.",
+      "Ambos exportan métricas y ticks comparables."
+    ],
+    "dod": [
+      "Ejecutar los oráculos/tests pertinentes a cada AC y registrar evidencia real en Backlog.md.",
+      "Actualizar contratos y documentación pública afectados; no declarar Done con comprobaciones relevantes NOT_RUN."
+    ]
+  },
+  {
+    "key": "NOE-011",
+    "phase": "M1",
+    "priority": "high",
+    "size": "standard",
+    "dependencies": [
+      "NOE-004",
+      "NOE-006"
+    ],
+    "title": "Oráculos de Shannon y entropía de trayectorias",
+    "description": "Implementar entropía discreta en bits y estimador empírico sobre trayectorias agrupadas por bins explícitos. Implementación distribuida oficialmente como módulo core de información, sin dependencia de labs.",
+    "acceptance": [
+      "Uniforme de 4 estados da 2 bits; determinista da 0; distribución inválida rechazada.",
+      "Test distingue distribución de futuros de estados finales; bins/version registrados.",
+      "No se llama entropía causal física al proxy sin demostrar equivalencia."
+    ],
+    "dod": [
+      "Ejecutar los oráculos/tests pertinentes a cada AC y registrar evidencia real en Backlog.md.",
+      "Actualizar contratos y documentación pública afectados; no declarar Done con comprobaciones relevantes NOT_RUN."
+    ]
+  },
+  {
+    "key": "NOE-012",
+    "phase": "M1",
+    "priority": "high",
+    "size": "standard",
+    "dependencies": [
+      "NOE-011",
+      "NOE-009"
+    ],
+    "title": "Proxy de libertad futura y ruido",
+    "description": "Medir alcanzabilidad viable y diversidad de trayectorias bajo política de muestreo explícita.",
+    "acceptance": [
+      "Fixture de ruido puro muestra que H alto no implica control.",
+      "Excluir estados terminales inseguros y distinguir ausencia de diversidad.",
+      "Informe del experimento exporta resultado y parámetros, sin afirmar empowerment exacto."
+    ],
+    "dod": [
+      "Ejecutar los oráculos/tests pertinentes a cada AC y registrar evidencia real en Backlog.md.",
+      "Actualizar contratos y documentación pública afectados; no declarar Done con comprobaciones relevantes NOT_RUN."
+    ]
+  },
+  {
+    "key": "NOE-013",
+    "phase": "M1",
+    "priority": "high",
+    "size": "standard",
+    "dependencies": [
+      "NOE-009",
+      "NOE-010"
+    ],
+    "title": "Baseline Monte Carlo de horizonte fijo",
+    "description": "Implementar random shooting con acciones candidatas, mismo modelo y transición budget.",
+    "acceptance": [
+      "Selecciona trayectoria a meta en fixture controlado.",
+      "Registra número exacto de simulaciones y fallback.",
+      "A igual seed y budget produce mismo resultado."
+    ],
+    "dod": [
+      "Ejecutar los oráculos/tests pertinentes a cada AC y registrar evidencia real en Backlog.md.",
+      "Actualizar contratos y documentación pública afectados; no declarar Done con comprobaciones relevantes NOT_RUN."
+    ]
+  },
+  {
+    "key": "NOE-014",
+    "phase": "M1",
+    "priority": "high",
+    "size": "standard",
+    "dependencies": [
+      "NOE-011"
+    ],
+    "title": "Especificación reproducible de FMC",
+    "description": "Leer arXiv 1803.05049 v5 y 1807.01081; fijar variante, pseudocódigo, distancias, reward, clonación y licencia de referencia.",
+    "acceptance": [
+      "Documento técnico identifica versión, ecuaciones, normalizaciones, casos nulos y unidades.",
+      "Incluye vector de ejemplo manual con semilla y decisión esperada.",
+      "Distingue FMC, Fragile y proxy CEF; no copiar código de licencia incierta."
+    ],
+    "dod": [
+      "Ejecutar los oráculos/tests pertinentes a cada AC y registrar evidencia real en Backlog.md.",
+      "Actualizar contratos y documentación pública afectados; no declarar Done con comprobaciones relevantes NOT_RUN."
+    ]
+  },
+  {
+    "key": "NOE-015",
+    "phase": "M1",
+    "priority": "high",
+    "size": "standard",
+    "dependencies": [
+      "NOE-005",
+      "NOE-014"
+    ],
+    "title": "Población walker y transición batched",
+    "description": "Implementar arrays de walkers con estado, primer control, acumulación de reward, terminal, PRNG y ancestry opcional.",
+    "acceptance": [
+      "Paso de población coincide con fixture escalar.",
+      "Clonar estado no comparte mutabilidad ni RNG accidental.",
+      "Terminal no simula ilegalmente y presupuesto se contabiliza."
+    ],
+    "dod": [
+      "Ejecutar los oráculos/tests pertinentes a cada AC y registrar evidencia real en Backlog.md.",
+      "Actualizar contratos y documentación pública afectados; no declarar Done con comprobaciones relevantes NOT_RUN."
+    ]
+  },
+  {
+    "key": "NOE-016",
+    "phase": "M1",
+    "priority": "high",
+    "size": "endurance",
+    "dependencies": [
+      "NOE-015"
+    ],
+    "title": "Valor virtual y selección de compañeros FMC",
+    "description": "Implementar scoring y companion sampling según variante fijada, incluyendo centinelas y casos degenerados.",
+    "acceptance": [
+      "Vector de ejemplo de la especificación coincide dentro de tolerancia declarada.",
+      "Valores constantes, distancia cero, reward negativa y no finitos tienen comportamiento definido.",
+      "Tests de distribución de clonación reproducibles con seeds fijas."
+    ],
+    "dod": [
+      "Ejecutar los oráculos/tests pertinentes a cada AC y registrar evidencia real en Backlog.md.",
+      "Actualizar contratos y documentación pública afectados; no declarar Done con comprobaciones relevantes NOT_RUN."
+    ]
+  },
+  {
+    "key": "NOE-017",
+    "phase": "M1",
+    "priority": "high",
+    "size": "standard",
+    "dependencies": [
+      "NOE-016",
+      "NOE-006"
+    ],
+    "title": "Planificador FMC recedente",
+    "description": "Integrar walk/score/resample y selección de primera acción según variante; registrar coste de rollouts. FMC es algoritmo de referencia del core, no plugin de laboratorio.",
+    "acceptance": [
+      "Ejecuta episodio Grid sin efectos de mundo real durante simulaciones.",
+      "Respeta budget, terminal, cancelación y fallback.",
+      "Trace demuestra primera acción, conteo y resumen de valor/diversidad."
+    ],
+    "dod": [
+      "Ejecutar los oráculos/tests pertinentes a cada AC y registrar evidencia real en Backlog.md.",
+      "Actualizar contratos y documentación pública afectados; no declarar Done con comprobaciones relevantes NOT_RUN."
+    ]
+  },
+  {
+    "key": "NOE-018",
+    "phase": "M1",
+    "priority": "high",
+    "size": "standard",
+    "dependencies": [
+      "NOE-010",
+      "NOE-013",
+      "NOE-017"
+    ],
+    "title": "Experimento Grid con comparación justa",
+    "description": "Ejecutar baseline aleatorio, shooting, BFS privilegiado y FMC sobre fixtures y semillas separadas.",
+    "acceptance": [
+      "Máquinas de evaluación comparten estados iniciales, reglas y presupuesto documentado.",
+      "Exporta éxito, pasos, transiciones, latencia, intervalos y fallos por seed.",
+      "Si FMC pierde se registra y analiza, no se ajusta test para ocultarlo."
+    ],
+    "dod": [
+      "Ejecutar los oráculos/tests pertinentes a cada AC y registrar evidencia real en Backlog.md.",
+      "Actualizar contratos y documentación pública afectados; no declarar Done con comprobaciones relevantes NOT_RUN."
+    ]
+  },
+  {
+    "key": "NOE-019",
+    "phase": "M1",
+    "priority": "high",
+    "size": "standard",
+    "dependencies": [
+      "NOE-008",
+      "NOE-005"
+    ],
+    "title": "CartPole físico simplificado",
+    "description": "Implementar dinámica de péndulo invertido con integrador y límites, comparación analítica básica.",
+    "acceptance": [
+      "Tests comparan integración de paso y condición terminal a fixture numérico.",
+      "Control clásico de referencia estabiliza escenario inicial dentro de límites.",
+      "Snapshot y ejecución headless funcionan sin renderer."
+    ],
+    "dod": [
+      "Ejecutar los oráculos/tests pertinentes a cada AC y registrar evidencia real en Backlog.md.",
+      "Actualizar contratos y documentación pública afectados; no declarar Done con comprobaciones relevantes NOT_RUN."
+    ]
+  },
+  {
+    "key": "NOE-020",
+    "phase": "M1",
+    "priority": "high",
+    "size": "endurance",
+    "dependencies": [
+      "NOE-019",
+      "NOE-011",
+      "NOE-013"
+    ],
+    "title": "Experimento entrópico de péndulo",
+    "description": "Realizar aproximación de fuerzas entrópicas mediante muestreo de trayectorias sin reward de upright; distinguir adaptación de reproducción literal.",
+    "acceptance": [
+      "Configuración documenta estado, horizonte, bins, acciones, temperatura si procede y ausencia de reward angular.",
+      "Compara no control, controlador clásico y proxy entrópico en seeds fijas; publica fracaso si ocurre.",
+      "Mide tiempo erguido, energía y fallos; no afirma replicación PRL sin concordancia cuantitativa."
+    ],
+    "dod": [
+      "Ejecutar los oráculos/tests pertinentes a cada AC y registrar evidencia real en Backlog.md.",
+      "Actualizar contratos y documentación pública afectados; no declarar Done con comprobaciones relevantes NOT_RUN."
+    ]
+  },
+  {
+    "key": "NOE-071",
+    "phase": "M1",
+    "priority": "high",
+    "size": "standard",
+    "dependencies": [
+      "NOE-002",
+      "NOE-006"
+    ],
+    "title": "Motivación y homeostasis reutilizables",
+    "description": "Core adaptativo: drive target, déficit y utilidad dinámica con límites; separar restricción inviolable de objetivo ponderado.",
+    "acceptance": [
+      "Déficit modifica utilidad en dos dominios de fixture sin código de Life.",
+      "Normalización y saturación de entradas no finitas tienen error explícito.",
+      "Objetivo de alta utilidad no permite acción prohibida."
+    ],
+    "dod": [
+      "Ejecutar los oráculos/tests pertinentes a cada AC y registrar evidencia real en Backlog.md.",
+      "Actualizar contratos y documentación pública afectados; no declarar Done con comprobaciones relevantes NOT_RUN."
+    ]
+  },
+  {
+    "key": "NOE-080",
+    "phase": "M1",
+    "priority": "high",
+    "size": "standard",
+    "dependencies": [
+      "NOE-017",
+      "NOE-065"
+    ],
+    "title": "FMC incremental con checkpoints acotados",
+    "description": "Core planificación: interfaz anytime con candidato admisible inicial si existe; pausar entre unidades acotadas y reservar margen para guardia/actuación.",
+    "acceptance": [
+      "Interrupción a cada checkpoint retorna mejor candidato admisible conocido o ausencia explícita.",
+      "Budget de transiciones exacto en reloj virtual; deadline medido por reloj monotónico.",
+      "Fixture costoso registra sobrepaso; no promete límites si el modelo es no acotado."
+    ],
+    "dod": [
+      "Ejecutar los oráculos/tests pertinentes a cada AC y registrar evidencia real en Backlog.md.",
+      "Actualizar contratos y documentación pública afectados; no declarar Done con comprobaciones relevantes NOT_RUN."
+    ]
+  },
+  {
+    "key": "NOE-021",
+    "phase": "M2",
+    "priority": "high",
+    "size": "standard",
+    "dependencies": [
+      "NOE-002"
+    ],
+    "title": "Envelope de observaciones y procedencia",
+    "description": "ADT timestamp observado/recibido, sensor, frame, unidades, confianza, revisión y evidence ref.",
+    "acceptance": [
+      "Distingue medición, afirmación, intención, propuesta y desconocido.",
+      "Mensajes tardíos y duplicados se detectan por ID/tiempo.",
+      "No existe conversión implícita de confianza a verdad o permiso."
+    ],
+    "dod": [
+      "Ejecutar los oráculos/tests pertinentes a cada AC y registrar evidencia real en Backlog.md.",
+      "Actualizar contratos y documentación pública afectados; no declarar Done con comprobaciones relevantes NOT_RUN."
+    ]
+  },
+  {
+    "key": "NOE-081",
+    "phase": "M0",
+    "priority": "high",
+    "size": "standard",
+    "dependencies": [
+      "NOE-066",
+      "NOE-021"
+    ],
+    "title": "Canales acotados y caducidad",
+    "description": "Core runtime: colas acotadas, overflow explícito por tipo (latest/drop/reject), timestamps, freshness y versión; no bloqueo de productor crítico.",
+    "acceptance": [
+      "Consumidor lento no detiene productor; contador de pérdidas observables.",
+      "Datos caducados o de revisión anterior no sustituyen observación vigente.",
+      "Capacidad y política se resuelven al preparar; tests de saturación."
+    ],
+    "dod": [
+      "Ejecutar los oráculos/tests pertinentes a cada AC y registrar evidencia real en Backlog.md.",
+      "Actualizar contratos y documentación pública afectados; no declarar Done con comprobaciones relevantes NOT_RUN."
+    ]
+  },
+  {
+    "key": "NOE-022",
+    "phase": "M2",
+    "priority": "high",
+    "size": "standard",
+    "dependencies": [
+      "NOE-021"
+    ],
+    "title": "Creencias discretas y actualización calibrada",
+    "description": "Implementar Bayes discreto con likelihood explícito, calibración independiente de confianza de interpretación.",
+    "acceptance": [
+      "Caso manual prior .2, sensibilidad/especificidad .8, positivo da posterior .5.",
+      "Rumor repetido con mismo origen no cuenta como evidencia independiente.",
+      "Observación imposible o desactualizada produce conflicto o abstención explícita."
+    ],
+    "dod": [
+      "Ejecutar los oráculos/tests pertinentes a cada AC y registrar evidencia real en Backlog.md.",
+      "Actualizar contratos y documentación pública afectados; no declarar Done con comprobaciones relevantes NOT_RUN."
+    ]
+  },
+  {
+    "key": "NOE-023",
+    "phase": "M2",
+    "priority": "high",
+    "size": "standard",
+    "dependencies": [
+      "NOE-009",
+      "NOE-022"
+    ],
+    "title": "Grid parcialmente observable",
+    "description": "Separar estado ground truth del mapa de creencias; agregar oclusión y fuente humana falible de fixture.",
+    "acceptance": [
+      "Planner no lee ground truth por la API de observación.",
+      "Informe humano permite actualizar hipótesis y contradicción observable corrige.",
+      "Casos seeded cubren falso positivo, falso negativo y dato antiguo."
+    ],
+    "dod": [
+      "Ejecutar los oráculos/tests pertinentes a cada AC y registrar evidencia real en Backlog.md.",
+      "Actualizar contratos y documentación pública afectados; no declarar Done con comprobaciones relevantes NOT_RUN."
+    ]
+  },
+  {
+    "key": "NOE-024",
+    "phase": "M2",
+    "priority": "high",
+    "size": "standard",
+    "dependencies": [
+      "NOE-021"
+    ],
+    "title": "Puerto System One y proveedor offline",
+    "description": "Contrato de preguntas tipadas Choice/Noul/Score con Unknown, timeout, provenance y distribución validada. Cognición tipada y replay forman parte del core; Jev es proveedor reemplazable.",
+    "acceptance": [
+      "Fake/replay responde a fixtures sin red, tokens ni Jev.",
+      "Rechaza opciones inexistentes y scores no finitos; preserva raw scores por separado.",
+      "Proveedor reemplazable por inyección, sin referencia al planner."
+    ],
+    "dod": [
+      "Ejecutar los oráculos/tests pertinentes a cada AC y registrar evidencia real en Backlog.md.",
+      "Actualizar contratos y documentación pública afectados; no declarar Done con comprobaciones relevantes NOT_RUN."
+    ]
+  },
+  {
+    "key": "NOE-027",
+    "phase": "M2",
+    "priority": "high",
+    "size": "standard",
+    "dependencies": [
+      "NOE-023",
+      "NOE-017"
+    ],
+    "title": "FMC sobre muestras de creencia",
+    "description": "Prototipo separado de FMC nominal: sample root-state desde posterior, elegir política sin privilegio de verdad.",
+    "acceptance": [
+      "Estados alternativos ponderados generan rollouts aislados.",
+      "Prueba de indistinguibilidad inicial evita fuga de estado oculto.",
+      "Comparación con FMC bajo estado nominal registra incertidumbre; no se denomina POMCP."
+    ],
+    "dod": [
+      "Ejecutar los oráculos/tests pertinentes a cada AC y registrar evidencia real en Backlog.md.",
+      "Actualizar contratos y documentación pública afectados; no declarar Done con comprobaciones relevantes NOT_RUN."
+    ]
+  },
+  {
+    "key": "NOE-029",
+    "phase": "M2",
+    "priority": "medium",
+    "size": "standard",
+    "dependencies": [
+      "NOE-024"
+    ],
+    "title": "Adaptador Jev real desacoplado",
+    "description": "Verificar documentación y autenticación vigente, pin de modelo, contrato HTTP y capability discovery; implementarlo detrás de feature.",
+    "acceptance": [
+      "Pruebas contractuales con mock cubren éxito, timeout, auth, rate-limit y respuesta malformada.",
+      "Sin clave o red el core y labs siguen operativos; real smoke opt-in con datos sintéticos.",
+      "No registrar claves ni texto humano bruto; Box visual fuera de alcance inicial."
+    ],
+    "dod": [
+      "Ejecutar los oráculos/tests pertinentes a cada AC y registrar evidencia real en Backlog.md.",
+      "Actualizar contratos y documentación pública afectados; no declarar Done con comprobaciones relevantes NOT_RUN."
+    ]
+  },
+  {
+    "key": "NOE-072",
+    "phase": "M2",
+    "priority": "high",
+    "size": "standard",
+    "dependencies": [
+      "NOE-021"
+    ],
+    "title": "Memoria episódica acotada",
+    "description": "Core: registro de episodios con revisión y procedencia; puerto de memoria, implementación local in-memory acotada y política de retención.",
+    "acceptance": [
+      "Consulta por tiempo y entidad devuelve episodio con procedencia.",
+      "Retención/expiración respeta límite, sin guardar texto personal bruto por defecto.",
+      "Memoria de individuos aislada y replay reconstruye el fixture."
+    ],
+    "dod": [
+      "Ejecutar los oráculos/tests pertinentes a cada AC y registrar evidencia real en Backlog.md.",
+      "Actualizar contratos y documentación pública afectados; no declarar Done con comprobaciones relevantes NOT_RUN."
+    ]
+  },
+  {
+    "key": "NOE-073",
+    "phase": "M2",
+    "priority": "high",
+    "size": "standard",
+    "dependencies": [
+      "NOE-072",
+      "NOE-022"
+    ],
+    "title": "Memoria semántica de conocimiento revisable",
+    "description": "Core: entidades, proposiciones, evidencia y contradicción; pequeño repositorio nativo, sin DB obligatoria ni LLM.",
+    "acceptance": [
+      "Hecho propuesto, hipótesis y observación corroborada son distinguibles.",
+      "Evidencia contradictoria revisa creencia sin destruir procedencia previa.",
+      "Consulta por entidad resuelve candidatos para grounding en fixture."
+    ],
+    "dod": [
+      "Ejecutar los oráculos/tests pertinentes a cada AC y registrar evidencia real en Backlog.md.",
+      "Actualizar contratos y documentación pública afectados; no declarar Done con comprobaciones relevantes NOT_RUN."
+    ]
+  },
+  {
+    "key": "NOE-025",
+    "phase": "M2",
+    "priority": "high",
+    "size": "standard",
+    "dependencies": [
+      "NOE-024",
+      "NOE-073"
+    ],
+    "title": "Grounding semántico de mensajes",
+    "description": "Extraer candidatos de ontología local; mapear lenguaje a descripciones y proposiciones mediante pregunta tipada. Utilizar memoria semántica y catálogo reutilizables del core.",
+    "acceptance": [
+      "Fixtures español/inglés distinguen aviso, orden, preferencia, negación y referente ambiguo.",
+      "No se crean EntityId o acciones arbitrarias por respuesta de modelo.",
+      "Unknown y varios candidatos provocan abstención o pregunta."
+    ],
+    "dod": [
+      "Ejecutar los oráculos/tests pertinentes a cada AC y registrar evidencia real en Backlog.md.",
+      "Actualizar contratos y documentación pública afectados; no declarar Done con comprobaciones relevantes NOT_RUN."
+    ]
+  },
+  {
+    "key": "NOE-026",
+    "phase": "M2",
+    "priority": "high",
+    "size": "standard",
+    "dependencies": [
+      "NOE-025",
+      "NOE-022",
+      "NOE-023"
+    ],
+    "title": "Language World: señal humana a creencias",
+    "description": "Conectar mensajes replay, grounding, fusión y planner en lab Grid, manteniendo permisos separados.",
+    "acceptance": [
+      "Aviso correcto de obstáculo altera creencia y ruta elegida; falso se corrige.",
+      "Mensaje que pretende anular guardia no modifica restricciones ni efectos.",
+      "Demostración CLI offline incluye trace de interpretación a decisión."
+    ],
+    "dod": [
+      "Ejecutar los oráculos/tests pertinentes a cada AC y registrar evidencia real en Backlog.md.",
+      "Actualizar contratos y documentación pública afectados; no declarar Done con comprobaciones relevantes NOT_RUN."
+    ]
+  },
+  {
+    "key": "NOE-074",
+    "phase": "M2",
+    "priority": "high",
+    "size": "standard",
+    "dependencies": [
+      "NOE-072",
+      "NOE-022"
+    ],
+    "title": "Aprendizaje incremental por observación",
+    "description": "Core: Learn/Update con evaluación de predicción frente a resultado; aprendizaje tabular o calibración incremental acotada, sin entrenamiento externo.",
+    "acceptance": [
+      "Fixture aprende frecuencia de transición y mejora error holdout frente a prior bajo condiciones fijadas.",
+      "Observación duplicada no entrena dos veces; actualización versionada y reproducible.",
+      "Política de aprendizaje no cambia guardia ni acciones autorizables."
+    ],
+    "dod": [
+      "Ejecutar los oráculos/tests pertinentes a cada AC y registrar evidencia real en Backlog.md.",
+      "Actualizar contratos y documentación pública afectados; no declarar Done con comprobaciones relevantes NOT_RUN."
+    ]
+  },
+  {
+    "key": "NOE-075",
+    "phase": "M2",
+    "priority": "high",
+    "size": "standard",
+    "dependencies": [
+      "NOE-074",
+      "NOE-072",
+      "NOE-007"
+    ],
+    "title": "Memoria procedimental y promoción de estrategias",
+    "description": "Core: almacenar estrategia candidata, evidencia de evaluación y promoción/reversión explícita; primera implementación de valor tabular o selección de política.",
+    "acceptance": [
+      "Candidata no probada no sustituye política activa; evaluación fixture autoriza o rechaza.",
+      "Rollback recupera versión anterior, incluidas estadísticas necesarias.",
+      "Aprendizaje no cambia restricciones y resultados negativos quedan visibles."
+    ],
+    "dod": [
+      "Ejecutar los oráculos/tests pertinentes a cada AC y registrar evidencia real en Backlog.md.",
+      "Actualizar contratos y documentación pública afectados; no declarar Done con comprobaciones relevantes NOT_RUN."
+    ]
+  },
+  {
+    "key": "NOE-076",
+    "phase": "M2",
+    "priority": "high",
+    "size": "standard",
+    "dependencies": [
+      "NOE-021",
+      "NOE-024"
+    ],
+    "title": "Comunicación situada reutilizable",
+    "description": "Core: mensajes tipados, avisos, preguntas, respuesta/no-respuesta, interlocutor, alcance y coste. Transporte como puerto; plantillas offline.",
+    "acceptance": [
+      "Fixture mensaje-respuesta y timeout reproduce correlación y orden.",
+      "Canales no otorgan autoridad ni bloquean al controlador.",
+      "Mismo canal local sirve humano y símbolo multiagente con payload validado."
+    ],
+    "dod": [
+      "Ejecutar los oráculos/tests pertinentes a cada AC y registrar evidencia real en Backlog.md.",
+      "Actualizar contratos y documentación pública afectados; no declarar Done con comprobaciones relevantes NOT_RUN."
+    ]
+  },
+  {
+    "key": "NOE-028",
+    "phase": "M2",
+    "priority": "high",
+    "size": "standard",
+    "dependencies": [
+      "NOE-022",
+      "NOE-026",
+      "NOE-076"
+    ],
+    "title": "Acción epistémica Ask/Inspect",
+    "description": "Valorar información esperada y coste de preguntar, inspeccionar o avanzar; opción sin respuesta. Usar contrato de comunicación core, no transporte propio del laboratorio.",
+    "acceptance": [
+      "En fixture preguntar es útil cuando cambia decisión y coste bajo.",
+      "Con coste alto o información redundante no pregunta; timeout conserva creencia.",
+      "El mensaje recibido se procesa como observación, no como comando."
+    ],
+    "dod": [
+      "Ejecutar los oráculos/tests pertinentes a cada AC y registrar evidencia real en Backlog.md.",
+      "Actualizar contratos y documentación pública afectados; no declarar Done con comprobaciones relevantes NOT_RUN."
+    ]
+  },
+  {
+    "key": "NOE-030",
+    "phase": "M2",
+    "priority": "high",
+    "size": "standard",
+    "dependencies": [
+      "NOE-026",
+      "NOE-027",
+      "NOE-028"
+    ],
+    "title": "Ablación de sensor semántico y creencias",
+    "description": "Evaluar offline sensor físico solo, aviso perfecto, fuente falible, FMC nominal, FMC belief y comunicación activa.",
+    "acceptance": [
+      "Semillas holdout y presupuestos idénticos por configuración; reporta éxito, riesgo e información.",
+      "Brier, log-loss y fiabilidad se calculan para fixtures etiquetados sin afirmar calibración Jev real.",
+      "Demostración reproducible y resultado negativo aceptable si se explica."
+    ],
+    "dod": [
+      "Ejecutar los oráculos/tests pertinentes a cada AC y registrar evidencia real en Backlog.md.",
+      "Actualizar contratos y documentación pública afectados; no declarar Done con comprobaciones relevantes NOT_RUN."
+    ]
+  },
+  {
+    "key": "NOE-077",
+    "phase": "M2",
+    "priority": "high",
+    "size": "standard",
+    "dependencies": [
+      "NOE-071",
+      "NOE-007",
+      "NOE-021"
+    ],
+    "title": "Gestión de objetivos e intenciones",
+    "description": "Core: objetivos activos, prioridades, revisión y propuestas de cambios autorizadas; separar feedback semántico de permiso.",
+    "acceptance": [
+      "Objetivo externo autorizado modifica utilidad sin recompilar plan.",
+      "Propuesta no autorizada o expirada queda como observación sin ejecución.",
+      "Replay registra quién/origen, revisión y resultado de la transición."
+    ],
+    "dod": [
+      "Ejecutar los oráculos/tests pertinentes a cada AC y registrar evidencia real en Backlog.md.",
+      "Actualizar contratos y documentación pública afectados; no declarar Done con comprobaciones relevantes NOT_RUN."
+    ]
+  },
+  {
+    "key": "NOE-078",
+    "phase": "M2",
+    "priority": "high",
+    "size": "standard",
+    "dependencies": [
+      "NOE-066",
+      "NOE-007",
+      "NOE-064"
+    ],
+    "title": "Automatización por eventos y máquinas de estado",
+    "description": "Core: workflow tipado de condiciones, acciones propuestas, estado y timeout; grafo reactivo no scheduler distribuido.",
+    "acceptance": [
+      "Flujo de tres pasos se ejecuta sin planner o Jev.",
+      "Error y timeout activan rama explícita, retry acotado y no duplicación en fixture idempotente.",
+      "Un evento de decisión cognitiva puede activar el flujo sin puente ad hoc."
+    ],
+    "dod": [
+      "Ejecutar los oráculos/tests pertinentes a cada AC y registrar evidencia real en Backlog.md.",
+      "Actualizar contratos y documentación pública afectados; no declarar Done con comprobaciones relevantes NOT_RUN."
+    ]
+  },
+  {
+    "key": "NOE-079",
+    "phase": "M2",
+    "priority": "high",
+    "size": "standard",
+    "dependencies": [
+      "NOE-078",
+      "NOE-070",
+      "NOE-077"
+    ],
+    "title": "Aplicación general: supervisor de servicio local",
+    "description": "Lab de aplicación convencional: eventos sintéticos de servicio, reglas exactas, workflow de diagnóstico y acción fake autorizada; modo opcional con incertidumbre.",
+    "acceptance": [
+      "Modo sin IA ejecuta alerta, diagnóstico y resolución con replay.",
+      "Modo cognitivo añade clasificación de fixture sin cambiar workflow/contratos.",
+      "Tercero configura otro caso mediante Spec sin modificar core."
+    ],
+    "dod": [
+      "Ejecutar los oráculos/tests pertinentes a cada AC y registrar evidencia real en Backlog.md.",
+      "Actualizar contratos y documentación pública afectados; no declarar Done con comprobaciones relevantes NOT_RUN."
+    ]
+  },
+  {
+    "key": "NOE-031",
+    "phase": "M3",
+    "priority": "high",
+    "size": "standard",
+    "dependencies": [
+      "NOE-008",
+      "NOE-005"
+    ],
+    "title": "Lab Kart: física cinemática 2D",
+    "description": "Implementar bicycle model simple, dt fijo, muros, control continuo y checkpoints.",
+    "acceptance": [
+      "Coche manual recorre pista; colisión y límites comprobados.",
+      "Mapa y física sin renderer con snapshots; test de continuidad de trayectoria.",
+      "Modelo declara aproximaciones, neumáticos/fricción compleja no incluidos."
+    ],
+    "dod": [
+      "Ejecutar los oráculos/tests pertinentes a cada AC y registrar evidencia real en Backlog.md.",
+      "Actualizar contratos y documentación pública afectados; no declarar Done con comprobaciones relevantes NOT_RUN."
+    ]
+  },
+  {
+    "key": "NOE-032",
+    "phase": "M3",
+    "priority": "high",
+    "size": "standard",
+    "dependencies": [
+      "NOE-031",
+      "NOE-017"
+    ],
+    "title": "Kart autónomo FMC",
+    "description": "Adaptar muestreo continuo y objetivos progreso, integridad y energía.",
+    "acceptance": [
+      "FMC toma controles acotados y completa o falla limpiamente en circuito base.",
+      "Baseline simple y seeds/circuitos no vistos documentados.",
+      "Exporta vueltas, colisiones, tiempo y coste por decisión."
+    ],
+    "dod": [
+      "Ejecutar los oráculos/tests pertinentes a cada AC y registrar evidencia real en Backlog.md.",
+      "Actualizar contratos y documentación pública afectados; no declarar Done con comprobaciones relevantes NOT_RUN."
+    ]
+  },
+  {
+    "key": "NOE-033",
+    "phase": "M0",
+    "priority": "high",
+    "size": "standard",
+    "dependencies": [
+      "NOE-008"
+    ],
+    "title": "Stream de snapshots y eventos acotado",
+    "description": "Definir contrato común de observabilidad independiente de UI: RunId, Tick, revisión, entidad y fuente; separar frames descartables de eventos científicos. Publicación solo con observadores; snapshots visuales no son checkpoints completos.",
+    "acceptance": [
+      "Fixture valida versión, orden, reloj y distinción observado/inferido/hipotético.",
+      "Consumidor lento pierde frames con contador explícito; sin bloqueo de control ni cola ilimitada.",
+      "Core sin Bevy/egui; sin secretos ni texto humano por defecto."
+    ],
+    "dod": [
+      "Ejecutar los oráculos/tests pertinentes a cada AC y registrar evidencia real en Backlog.md.",
+      "Actualizar contratos y documentación pública afectados; no declarar Done con comprobaciones relevantes NOT_RUN."
+    ]
+  },
+  {
+    "key": "NOE-036",
+    "phase": "M3",
+    "priority": "high",
+    "size": "standard",
+    "dependencies": [
+      "NOE-008",
+      "NOE-002"
+    ],
+    "title": "Life: metabolismo y recursos",
+    "description": "Mundo ECS o SoA sencillo con energía, alimento, movimiento, muerte y ticks discretos.",
+    "acceptance": [
+      "Tests verifican balance de energía, consumo y límites de población.",
+      "Seed reproduce dinámica y estado global; sin lenguaje/modelos externos.",
+      "Organismos no leen verdad global salvo modalidad privilegiada explícita."
+    ],
+    "dod": [
+      "Ejecutar los oráculos/tests pertinentes a cada AC y registrar evidencia real en Backlog.md.",
+      "Actualizar contratos y documentación pública afectados; no declarar Done con comprobaciones relevantes NOT_RUN."
+    ]
+  },
+  {
+    "key": "NOE-037",
+    "phase": "M3",
+    "priority": "high",
+    "size": "standard",
+    "dependencies": [
+      "NOE-036"
+    ],
+    "title": "Life: reproducción y herencia",
+    "description": "Genes acotados, costo reproductivo, mutación reproducible y linaje.",
+    "acceptance": [
+      "Reproducción conserva energía según contrato, mutación dentro de límites.",
+      "Linaje registra generación y padres; muerte elimina actor.",
+      "Presupuesto de población impide crecimiento no acotado."
+    ],
+    "dod": [
+      "Ejecutar los oráculos/tests pertinentes a cada AC y registrar evidencia real en Backlog.md.",
+      "Actualizar contratos y documentación pública afectados; no declarar Done con comprobaciones relevantes NOT_RUN."
+    ]
+  },
+  {
+    "key": "NOE-038",
+    "phase": "M3",
+    "priority": "high",
+    "size": "standard",
+    "dependencies": [
+      "NOE-036",
+      "NOE-017",
+      "NOE-071",
+      "NOE-077"
+    ],
+    "title": "Life: homeostasis y agente adaptativo",
+    "description": "Mapear necesidades a objetivos dinámicos y FMC con presupuesto por organismo; baseline heurístico. Homeostasis reside en core; Life solo aporta metabolismo y recursos concretos.",
+    "acceptance": [
+      "Organismo busca alimento cuando déficit cambia la valoración, no mediante if de acción fija.",
+      "Baseline y FMC comparten mundo y recursos; coste de planning medido.",
+      "Prueba evita recompensa por conducta objetivo cuando se evalúa emergencia."
+    ],
+    "dod": [
+      "Ejecutar los oráculos/tests pertinentes a cada AC y registrar evidencia real en Backlog.md.",
+      "Actualizar contratos y documentación pública afectados; no declarar Done con comprobaciones relevantes NOT_RUN."
+    ]
+  },
+  {
+    "key": "NOE-040",
+    "phase": "M3",
+    "priority": "medium",
+    "size": "standard",
+    "dependencies": [
+      "NOE-037",
+      "NOE-038",
+      "NOE-076",
+      "NOE-074"
+    ],
+    "title": "Life: comunicación arbitraria",
+    "description": "Canal símbolos A-D con alcance, coste y aprendizaje asociativo simple; no Jev dentro de organismos. Reutilizar comunicación y aprendizaje core; Life solo define alfabeto, alcance y presión evolutiva.",
+    "acceptance": [
+      "Baseline sin señal y señal aleatoria comparables con canal aprendido.",
+      "Mide utilidad causal mediante intervención/permutación y coste.",
+      "Reporte diferencia señal útil de lenguaje composicional; resultado negativo válido."
+    ],
+    "dod": [
+      "Ejecutar los oráculos/tests pertinentes a cada AC y registrar evidencia real en Backlog.md.",
+      "Actualizar contratos y documentación pública afectados; no declarar Done con comprobaciones relevantes NOT_RUN."
+    ]
+  },
+  {
+    "key": "NOE-082",
+    "phase": "M3",
+    "priority": "high",
+    "size": "standard",
+    "dependencies": [
+      "NOE-081",
+      "NOE-080",
+      "NOE-007"
+    ],
+    "title": "Control multirritmo aislado de cognición",
+    "description": "Core: ruta periódica de control y worker best-effort separados, mailbox acotado y watchdog; resultado semántico/planning se acepta solo vigente.",
+    "acceptance": [
+      "Fixture control 1/10/50 ms con planner o sensor lento no espera su resultado.",
+      "Fallo, dato viejo y deadline vencido producen fallback específico.",
+      "Trace registra tiempos reales y jitter; frecuencias ilustrativas no garantías."
+    ],
+    "dod": [
+      "Ejecutar los oráculos/tests pertinentes a cada AC y registrar evidencia real en Backlog.md.",
+      "Actualizar contratos y documentación pública afectados; no declarar Done con comprobaciones relevantes NOT_RUN."
+    ]
+  },
+  {
+    "key": "NOE-083",
+    "phase": "M3",
+    "priority": "high",
+    "size": "standard",
+    "dependencies": [
+      "NOE-067",
+      "NOE-082",
+      "NOE-070"
+    ],
+    "title": "Perfil temporal y buffers de ruta crítica",
+    "description": "Core: General/Interactive/DeadlineAware; preasignación para fixture, prohibir IO y bloqueos de ruta acotada; validar capacidades antes de start.",
+    "acceptance": [
+      "Plan con operación bloqueante o memoria no acotada declarada se rechaza en ruta crítica.",
+      "Test instrumentado de fixture no asigna durante step tras warmup; límites registrados.",
+      "Declaraciones y pruebas se distinguen; no certificar tiempo real estricto."
+    ],
+    "dod": [
+      "Ejecutar los oráculos/tests pertinentes a cada AC y registrar evidencia real en Backlog.md.",
+      "Actualizar contratos y documentación pública afectados; no declarar Done con comprobaciones relevantes NOT_RUN."
+    ]
+  },
+  {
+    "key": "NOE-084",
+    "phase": "M3",
+    "priority": "high",
+    "size": "standard",
+    "dependencies": [
+      "NOE-082",
+      "NOE-033"
+    ],
+    "title": "Telemetría de cumplimiento temporal",
+    "description": "Core: medir p50/p95/p99, máximo observado, jitter, misses y fallback; reloj virtual para oráculos, wall-time monotónico para medición.",
+    "acceptance": [
+      "Fixture con retrasos inducidos cuenta misses y fallback correctamente.",
+      "Reporte incluye plataforma/carga/plazos/histograma y transiciones, sin afirmar WCET.",
+      "Medición acotada y desacoplada de render/IO lento."
+    ],
+    "dod": [
+      "Ejecutar los oráculos/tests pertinentes a cada AC y registrar evidencia real en Backlog.md.",
+      "Actualizar contratos y documentación pública afectados; no declarar Done con comprobaciones relevantes NOT_RUN."
+    ]
+  },
+  {
+    "key": "NOE-041",
+    "phase": "M4",
+    "priority": "high",
+    "size": "standard",
+    "dependencies": [
+      "NOE-005"
+    ],
+    "title": "Spike de emulación con juego libre",
+    "description": "Usar Stable-Retro o Libretro con ROM homebrew licenciada; validar snapshot que incluye estado de emulador y wrapper.",
+    "acceptance": [
+      "Restore y misma secuencia de inputs reproducen frame/RAM bajo build fijado.",
+      "Medir throughput batch, costo snapshot y límites de procesos; sin ROM comercial en repo.",
+      "Decisión técnica registra dependencia, licencia, plataforma y alternativa."
+    ],
+    "dod": [
+      "Ejecutar los oráculos/tests pertinentes a cada AC y registrar evidencia real en Backlog.md.",
+      "Actualizar contratos y documentación pública afectados; no declarar Done con comprobaciones relevantes NOT_RUN."
+    ]
+  },
+  {
+    "key": "NOE-042",
+    "phase": "M4",
+    "priority": "high",
+    "size": "standard",
+    "dependencies": [
+      "NOE-041",
+      "NOE-017"
+    ],
+    "title": "Adaptador digital con controles y frames",
+    "description": "Implementar bridge emulador residente en proceso o worker local, sin IPC por frame si coste excesivo.",
+    "acceptance": [
+      "Contratos de fork, step y reset pasan con homebrew; errores de core aislados.",
+      "Frame skipping y reward/terminal versionados; ejecución headless.",
+      "FMC controla entorno usando sólo modo de acceso declarado."
+    ],
+    "dod": [
+      "Ejecutar los oráculos/tests pertinentes a cada AC y registrar evidencia real en Backlog.md.",
+      "Actualizar contratos y documentación pública afectados; no declarar Done con comprobaciones relevantes NOT_RUN."
+    ]
+  },
+  {
+    "key": "NOE-043",
+    "phase": "M4",
+    "priority": "medium",
+    "size": "standard",
+    "dependencies": [
+      "NOE-042"
+    ],
+    "title": "Lab Mario: primer nivel",
+    "description": "Super Mario Bros o Super Mario World según integración verificada y ROM propia; no distribuir ROM/BIOS.",
+    "acceptance": [
+      "Comando acepta ROM del usuario y comprueba hash de integración; fixture libre CI.",
+      "Mide progreso, muertes, acciones, coste y velocidad de emulación frente a baseline.",
+      "Sin ROM real reporta NOT_RUN, no afirma nivel completado."
+    ],
+    "dod": [
+      "Ejecutar los oráculos/tests pertinentes a cada AC y registrar evidencia real en Backlog.md.",
+      "Actualizar contratos y documentación pública afectados; no declarar Done con comprobaciones relevantes NOT_RUN."
+    ]
+  },
+  {
+    "key": "NOE-044",
+    "phase": "M4",
+    "priority": "medium",
+    "size": "standard",
+    "dependencies": [
+      "NOE-043",
+      "NOE-026",
+      "NOE-028"
+    ],
+    "title": "Mario Coach: consejos humanos",
+    "description": "Avisos semánticos y sugerencias de objetivo asíncronos integrados en decisión, sin inputs directos del coach.",
+    "acceptance": [
+      "Aviso cambia hipótesis o preferencia autorizada y no controles directamente.",
+      "Mensajes tardíos/incorrectos y pausa de red no congelan juego.",
+      "Comparación con/sin coach registra latencia y utilidad con ROM legal o fixture libre."
+    ],
+    "dod": [
+      "Ejecutar los oráculos/tests pertinentes a cada AC y registrar evidencia real en Backlog.md.",
+      "Actualizar contratos y documentación pública afectados; no declarar Done con comprobaciones relevantes NOT_RUN."
+    ]
+  },
+  {
+    "key": "NOE-045",
+    "phase": "M4",
+    "priority": "medium",
+    "size": "standard",
+    "dependencies": [
+      "NOE-005",
+      "NOE-017"
+    ],
+    "title": "MuJoCo: snapshot e integración de control",
+    "description": "Probar bindings o sidecar con mj_getState/mj_setState y estado de integración completo; robot móvil simple.",
+    "acceptance": [
+      "Restaurar y repetir acción conserva estado dentro de tolerancia fijada.",
+      "Control continuo FMC vs controlador clásico, límite de simulaciones y latencia.",
+      "No se accede a hardware y dependencias opcionales no rompen offline core."
+    ],
+    "dod": [
+      "Ejecutar los oráculos/tests pertinentes a cada AC y registrar evidencia real en Backlog.md.",
+      "Actualizar contratos y documentación pública afectados; no declarar Done con comprobaciones relevantes NOT_RUN."
+    ]
+  },
+  {
+    "key": "NOE-046",
+    "phase": "M4",
+    "priority": "medium",
+    "size": "standard",
+    "dependencies": [
+      "NOE-045",
+      "NOE-027",
+      "NOE-007"
+    ],
+    "title": "Robot simulado navegación parcial",
+    "description": "Añadir odometría, sensores de distancia, obstáculos móviles, fusión y controlador de bajo nivel.",
+    "acceptance": [
+      "Completa escenario o falla seguro; perturbación y latencia de sensor probadas.",
+      "El planner solo envía objetivo/velocidad acotada; stop independiente.",
+      "Replay registra diferencia de predicción y resultado físico simulado."
+    ],
+    "dod": [
+      "Ejecutar los oráculos/tests pertinentes a cada AC y registrar evidencia real en Backlog.md.",
+      "Actualizar contratos y documentación pública afectados; no declarar Done con comprobaciones relevantes NOT_RUN."
+    ]
+  },
+  {
+    "key": "NOE-047",
+    "phase": "M4",
+    "priority": "medium",
+    "size": "standard",
+    "dependencies": [
+      "NOE-046",
+      "NOE-026",
+      "NOE-076",
+      "NOE-082"
+    ],
+    "title": "Robot simulado con colaborador humano",
+    "description": "Conectar percepción lingüística core y AskHuman en robot simulado usando replay; Jev live opcional si NOE-029 disponible, sin autoridad sobre guardia.",
+    "acceptance": [
+      "Fixture humano correcto/ambiguo/contradictorio cambia creencias bajo política.",
+      "Timeout de Jev no altera plazo del control local.",
+      "Compara éxito/colisiones/consultas y calibración sobre anotaciones."
+    ],
+    "dod": [
+      "Ejecutar los oráculos/tests pertinentes a cada AC y registrar evidencia real en Backlog.md.",
+      "Actualizar contratos y documentación pública afectados; no declarar Done con comprobaciones relevantes NOT_RUN."
+    ]
+  },
+  {
+    "key": "NOE-048",
+    "phase": "M5",
+    "priority": "high",
+    "size": "standard",
+    "dependencies": [
+      "NOE-018",
+      "NOE-026",
+      "NOE-032",
+      "NOE-070"
+    ],
+    "title": "SDK Rust: API pública y conformance kit",
+    "description": "Publicar API core estable pre-1.0 y kit básico a partir de mundos demostrados, más autoría mediante SystemSpec. Extraer contratos por seams reales; no mover algoritmos a plugins.",
+    "acceptance": [
+      "Proyecto consumidor externo compila sin depender de labs o Jev.",
+      "Kit verifica determinismo local, aislamiento fork, presupuesto y rechazo de acción.",
+      "Rustdoc documenta errores, unidades y estabilidad; SemVer pre-1.0 explícito."
+    ],
+    "dod": [
+      "Ejecutar los oráculos/tests pertinentes a cada AC y registrar evidencia real en Backlog.md.",
+      "Actualizar contratos y documentación pública afectados; no declarar Done con comprobaciones relevantes NOT_RUN."
+    ]
+  },
+  {
+    "key": "NOE-049",
+    "phase": "M5",
+    "priority": "medium",
+    "size": "standard",
+    "dependencies": [
+      "NOE-048",
+      "NOE-067"
+    ],
+    "title": "Registro estático de extensiones por capacidad",
+    "description": "Manifest de capacidades/versiones y factory explícita para adapters/planners/sensores; evitar ABI dinámica Rust.",
+    "acceptance": [
+      "Extensión no compatible falla al preparar con error tipado.",
+      "Ejemplo tercero registra un nuevo planner o sensor al construir su binario, sin modificar ni forkear el código fuente core.",
+      "No descarga ni ejecuta plugin remoto; capabilities no otorgan permiso."
+    ],
+    "dod": [
+      "Ejecutar los oráculos/tests pertinentes a cada AC y registrar evidencia real en Backlog.md.",
+      "Actualizar contratos y documentación pública afectados; no declarar Done con comprobaciones relevantes NOT_RUN."
+    ]
+  },
+  {
+    "key": "NOE-050",
+    "phase": "M5",
+    "priority": "medium",
+    "size": "standard",
+    "dependencies": [
+      "NOE-048",
+      "NOE-033"
+    ],
+    "title": "SDK Python por frontera estable",
+    "description": "Diseñar binding PyO3 o protocolo residente según medición; no duplicar dominio.",
+    "acceptance": [
+      "Ejemplo Python ejecuta Grid y recibe eventos, con errores tipados.",
+      "Tests de equivalencia Rust/Python en fixture; sin transferir snapshot por paso si evitable.",
+      "Build opcional y guía de distribución sin comprometer core."
+    ],
+    "dod": [
+      "Ejecutar los oráculos/tests pertinentes a cada AC y registrar evidencia real en Backlog.md.",
+      "Actualizar contratos y documentación pública afectados; no declarar Done con comprobaciones relevantes NOT_RUN."
+    ]
+  },
+  {
+    "key": "NOE-051",
+    "phase": "M5",
+    "priority": "medium",
+    "size": "standard",
+    "dependencies": [
+      "NOE-068",
+      "NOE-069",
+      "NOE-017",
+      "NOE-021",
+      "NOE-071"
+    ],
+    "title": "Spec adaptativa y ExperimentSpec tipados",
+    "description": "Ampliar SystemSpec para mundo, sensores, modelo, objetivos, restricciones, presupuesto y semillas. AgentSpec y ExperimentSpec componen el contrato común; no segunda IR específica de Kotlin.",
+    "acceptance": [
+      "Serializa y valida Grid y fixture cognitivo sin requerir la UI.",
+      "No expresa acciones no registradas ni eval de código.",
+      "Migración de versión documentada y diagnóstico útil."
+    ],
+    "dod": [
+      "Ejecutar los oráculos/tests pertinentes a cada AC y registrar evidencia real en Backlog.md.",
+      "Actualizar contratos y documentación pública afectados; no declarar Done con comprobaciones relevantes NOT_RUN."
+    ]
+  },
+  {
+    "key": "NOE-052",
+    "phase": "M5",
+    "priority": "medium",
+    "size": "standard",
+    "dependencies": [
+      "NOE-051",
+      "NOE-070"
+    ],
+    "title": "Frontend Kotlin DSL declarativo mínimo",
+    "description": "Biblioteca Kotlin/JVM con builders tipados y @DslMarker, genera Spec JSON; no host de scripting obligatorio. Kotlin se ejecuta solo al elaborar; no callbacks en runtime. JDK 25 candidato, validar compatibilidad Gradle/Kotlin.",
+    "acceptance": [
+      "Proyecto Kotlin genera Spec equivalente al Grid y sistema convencional de referencia.",
+      "Errores de nombres y capacidades se propagan desde validador Rust con ruta de origen.",
+      "Build Kotlin separado del runtime Rust; no JNI ni ejecución de scripts no confiables."
+    ],
+    "dod": [
+      "Ejecutar los oráculos/tests pertinentes a cada AC y registrar evidencia real en Backlog.md.",
+      "Actualizar contratos y documentación pública afectados; no declarar Done con comprobaciones relevantes NOT_RUN."
+    ]
+  },
+  {
+    "key": "NOE-053",
+    "phase": "M5",
+    "priority": "medium",
+    "size": "standard",
+    "dependencies": [
+      "NOE-052",
+      "NOE-026",
+      "NOE-076"
+    ],
+    "title": "DSL: observación semántica y Ask",
+    "description": "Builders Kotlin para preguntas Choice/Noul/Score, política de abstención y acciones epistémicas. Genera Spec sin interpretación de Kotlin durante ejecución.",
+    "acceptance": [
+      "Spec Kotlin de Language World produce trace equivalente a SDK.",
+      "Propuestas humanas no mutan permisos; fuente y evidencia quedan registradas.",
+      "Validador y builders rechazan referencias incompatibles y modelos no disponibles."
+    ],
+    "dod": [
+      "Ejecutar los oráculos/tests pertinentes a cada AC y registrar evidencia real en Backlog.md.",
+      "Actualizar contratos y documentación pública afectados; no declarar Done con comprobaciones relevantes NOT_RUN."
+    ]
+  },
+  {
+    "key": "NOE-085",
+    "phase": "M5",
+    "priority": "high",
+    "size": "standard",
+    "dependencies": [
+      "NOE-069",
+      "NOE-071"
+    ],
+    "title": "Expresiones simbólicas tipadas e indexadas",
+    "description": "Core spec/compiler: AST restringido de constantes, variables, aritmética, comparaciones y booleanos con unidades; resolver acceso por índice.",
+    "acceptance": [
+      "AST para energía*curiosidad y regla de umbral coincide con cálculo Rust.",
+      "Tipo/unidad inválidos, variables inexistentes y no finitos se rechazan.",
+      "Evaluador acotado sin código arbitrario, IO ni callback JVM."
+    ],
+    "dod": [
+      "Ejecutar los oráculos/tests pertinentes a cada AC y registrar evidencia real en Backlog.md.",
+      "Actualizar contratos y documentación pública afectados; no declarar Done con comprobaciones relevantes NOT_RUN."
+    ]
+  },
+  {
+    "key": "NOE-086",
+    "phase": "M5",
+    "priority": "high",
+    "size": "standard",
+    "dependencies": [
+      "NOE-070",
+      "NOE-085",
+      "NOE-049"
+    ],
+    "title": "Artefacto de plan compilado versionado",
+    "description": "Persistir artefacto portable con spec normalizada, plan serializable, hash, versión/runtime/catálogo; enlazar operaciones Rust al cargar, nunca punteros serializados.",
+    "acceptance": [
+      "Compile/run/inspect funcionan sin JVM para fixture.",
+      "Artefacto corrupto o incompatible falla antes de instanciar; recompilación explícita.",
+      "Carga no resuelve nombres por tick y no ejecuta código externo arbitrario."
+    ],
+    "dod": [
+      "Ejecutar los oráculos/tests pertinentes a cada AC y registrar evidencia real en Backlog.md.",
+      "Actualizar contratos y documentación pública afectados; no declarar Done con comprobaciones relevantes NOT_RUN."
+    ]
+  },
+  {
+    "key": "NOE-087",
+    "phase": "M5",
+    "priority": "high",
+    "size": "standard",
+    "dependencies": [
+      "NOE-052",
+      "NOE-085"
+    ],
+    "title": "DSL Kotlin: expresiones y unidades",
+    "description": "Frontend Kotlin/JVM de autoría: Expr<T>, referencias, operadores y unidades; generar Spec común sin ejecutar lambdas en Rust.",
+    "acceptance": [
+      "Expresiones emitidas coinciden con JSON canónico del fixture Rust.",
+      "Prueba de compilación rechaza combinación de tipos incompatible.",
+      "No JNI ni FFI ni Kotlin en runtime; errores Rust se relacionan con ruta de Spec."
+    ],
+    "dod": [
+      "Ejecutar los oráculos/tests pertinentes a cada AC y registrar evidencia real en Backlog.md.",
+      "Actualizar contratos y documentación pública afectados; no declarar Done con comprobaciones relevantes NOT_RUN."
+    ]
+  },
+  {
+    "key": "NOE-088",
+    "phase": "M5",
+    "priority": "high",
+    "size": "standard",
+    "dependencies": [
+      "NOE-087",
+      "NOE-053",
+      "NOE-086",
+      "NOE-079"
+    ],
+    "title": "Equivalencia Rust JSON y Kotlin",
+    "description": "Mismo sistema general y agente cognitivo desde tres frontends; comparar fingerprint y trace determinista en mismo build.",
+    "acceptance": [
+      "Rust/JSON/Kotlin generan planes semánticamente equivalentes.",
+      "Ejecutar artefactos con entorno sin JVM reproduce trazas por seed.",
+      "Medir autoría, compilación y carga aparte de ejecución; no prometer coste cero de abstracción."
+    ],
+    "dod": [
+      "Ejecutar los oráculos/tests pertinentes a cada AC y registrar evidencia real en Backlog.md.",
+      "Actualizar contratos y documentación pública afectados; no declarar Done con comprobaciones relevantes NOT_RUN."
+    ]
+  },
+  {
+    "key": "NOE-089",
+    "phase": "M5",
+    "priority": "high",
+    "size": "standard",
+    "dependencies": [
+      "NOE-048",
+      "NOE-049",
+      "NOE-073",
+      "NOE-075",
+      "NOE-076",
+      "NOE-077",
+      "NOE-078"
+    ],
+    "title": "Conformance de capacidades core desde extensión",
+    "description": "SDK comprueba que nuevo mundo reutiliza sensores, planificación, memoria, aprendizaje, motivación y guardia; ejemplos mínimos sin copiar algoritmos.",
+    "acceptance": [
+      "Consumidor externo combina al menos cuatro capacidades core sin depender de labs, Jev real ni UI.",
+      "Conformance cubre catálogo, temporalidad, aislamiento y replay de efectos pertinentes.",
+      "Ejemplo sin IA no activa planners ni modelos; dependencias externas ausentes."
+    ],
+    "dod": [
+      "Ejecutar los oráculos/tests pertinentes a cada AC y registrar evidencia real en Backlog.md.",
+      "Actualizar contratos y documentación pública afectados; no declarar Done con comprobaciones relevantes NOT_RUN."
+    ]
+  },
+  {
+    "key": "NOE-055",
+    "phase": "FUT",
+    "priority": "low",
+    "size": "standard",
+    "dependencies": [
+      "NOE-027",
+      "NOE-030"
+    ],
+    "title": "Baseline POMCP y comparación de creencias",
+    "description": "Implementar o adaptar POMCP como algoritmo independiente para comparar con belief-FMC. Si útil se incorpora como estrategia oficial core.",
+    "acceptance": [
+      "Fixtures distinguen política condicionada a historial de rollout omnisciente.",
+      "Comparación igualdad de budget informa incertidumbre y rendimiento.",
+      "Decisión sobre siguiente inversión basada en resultado, sin prometer superioridad."
+    ],
+    "dod": [
+      "Ejecutar los oráculos/tests pertinentes a cada AC y registrar evidencia real en Backlog.md.",
+      "Actualizar contratos y documentación pública afectados; no declarar Done con comprobaciones relevantes NOT_RUN."
+    ]
+  },
+  {
+    "key": "NOE-056",
+    "phase": "FUT",
+    "priority": "low",
+    "size": "standard",
+    "dependencies": [
+      "NOE-012"
+    ],
+    "title": "Empowerment de referencia en mundo discreto",
+    "description": "Calcular capacidad de canal acción-observación en fixture finito (Blahut-Arimoto o enumeración pequeña).",
+    "acceptance": [
+      "Canal identidad N estados produce log2 N bits; canal ruido independiente produce 0.",
+      "Comparar proxy de diversidad y empowerment sin equipararlos.",
+      "Documentar horizonte, observación, política y límites de escalabilidad."
+    ],
+    "dod": [
+      "Ejecutar los oráculos/tests pertinentes a cada AC y registrar evidencia real en Backlog.md.",
+      "Actualizar contratos y documentación pública afectados; no declarar Done con comprobaciones relevantes NOT_RUN."
+    ]
+  },
+  {
+    "key": "NOE-058",
+    "phase": "FUT",
+    "priority": "low",
+    "size": "standard",
+    "dependencies": [
+      "NOE-046"
+    ],
+    "title": "Safety supervisor simulación adversarial",
+    "description": "Fault injection de sensor viejo, actuator timeout y modelo erróneo; política fail-safe externa.",
+    "acceptance": [
+      "Stop independiente de planner se activa en fixture bajo fallos.",
+      "Riesgo residual y fallback por dominio se documentan y verifican.",
+      "No equivale a certificación ni permite hardware real automáticamente."
+    ],
+    "dod": [
+      "Ejecutar los oráculos/tests pertinentes a cada AC y registrar evidencia real en Backlog.md.",
+      "Actualizar contratos y documentación pública afectados; no declarar Done con comprobaciones relevantes NOT_RUN."
+    ]
+  },
+  {
+    "key": "NOE-059",
+    "phase": "FUT",
+    "priority": "low",
+    "size": "standard",
+    "dependencies": [
+      "NOE-058"
+    ],
+    "title": "Spike ROS 2 en hardware-in-the-loop",
+    "description": "Definir contrato ROS2 sim/HIL y watchdog con controladores locales; preparar robot de bajo riesgo solo con autorización separada.",
+    "acceptance": [
+      "Emulador o HIL valida timeout y parada; sin hardware físico por defecto.",
+      "Límites de velocidad, geofence, supervisión y parada física documentados.",
+      "Prueba física NOT_RUN hasta autorización, dispositivo y protocolo de seguridad."
+    ],
+    "dod": [
+      "Ejecutar los oráculos/tests pertinentes a cada AC y registrar evidencia real en Backlog.md.",
+      "Actualizar contratos y documentación pública afectados; no declarar Done con comprobaciones relevantes NOT_RUN."
+    ]
+  },
+  {
+    "key": "NOE-060",
+    "phase": "FUT",
+    "priority": "low",
+    "size": "standard",
+    "dependencies": [
+      "NOE-029",
+      "NOE-030"
+    ],
+    "title": "Percepción multimodal y System Two opcionales",
+    "description": "Descubrir plugin visual/Box si disponible y salida generativa con grounding; usar solo fuera del control crítico.",
+    "acceptance": [
+      "Capacidades experimentales opt-in y abstención por defecto.",
+      "Candidatos generados se validan por catálogo, guardia y procedencia.",
+      "Comparar coste/beneficio con detector o plantillas locales; no dependencia hard."
+    ],
+    "dod": [
+      "Ejecutar los oráculos/tests pertinentes a cada AC y registrar evidencia real en Backlog.md.",
+      "Actualizar contratos y documentación pública afectados; no declarar Done con comprobaciones relevantes NOT_RUN."
+    ]
+  },
+  {
+    "key": "NOE-061",
+    "phase": "FUT",
+    "priority": "low",
+    "size": "standard",
+    "dependencies": [
+      "NOE-088"
+    ],
+    "title": "Spike de autoría Kotlin scripting y frontends alternativos",
+    "description": "Evaluar .noesis.kts como autoría de confianza y un frontend declarativo seguro adicional solo si hay demanda. No lenguaje general ni VM como objetivo.",
+    "acceptance": [
+      "Script de confianza genera misma Spec que biblioteca Kotlin.",
+      "Modelo de amenazas distingue código de autoría de datos no confiables; sin sandbox ficticio.",
+      "Decisión documenta si mantener biblioteca o añadir scripting/frontend por valor medido."
+    ],
+    "dod": [
+      "Ejecutar los oráculos/tests pertinentes a cada AC y registrar evidencia real en Backlog.md.",
+      "Actualizar contratos y documentación pública afectados; no declarar Done con comprobaciones relevantes NOT_RUN."
+    ]
+  },
+  {
+    "key": "NOE-062",
+    "phase": "FUT",
+    "priority": "low",
+    "size": "standard",
+    "dependencies": [
+      "NOE-040"
+    ],
+    "title": "Aprendizaje de estrategias y comunicación emergente",
+    "description": "Comparar herencia, aprendizaje asociativo y distillation de trayectorias FMC en tareas acotadas.",
+    "acceptance": [
+      "Separar train/holdout y registrar semillas/linajes.",
+      "Ablación causal del canal y coste de comunicación; resultados negativos válidos.",
+      "Sin modificar políticas de seguridad a partir de reward ni afirmar consciencia."
+    ],
+    "dod": [
+      "Ejecutar los oráculos/tests pertinentes a cada AC y registrar evidencia real en Backlog.md.",
+      "Actualizar contratos y documentación pública afectados; no declarar Done con comprobaciones relevantes NOT_RUN."
+    ]
+  },
+  {
+    "key": "NOE-090",
+    "phase": "FUT",
+    "priority": "low",
+    "size": "standard",
+    "dependencies": [
+      "NOE-083",
+      "NOE-084"
+    ],
+    "title": "Perfil Linux de baja latencia experimental",
+    "description": "Evaluar configuración PREEMPT_RT y afinidad en hardware identificado; comparar jitter/misses contra Linux normal sin promover certificación.",
+    "acceptance": [
+      "Reporte reproducible identifica kernel, CPU, permisos y carga.",
+      "Medir incumplimientos y fallback para múltiples perfiles de carga.",
+      "Sin plataforma RT disponible marcar NOT_RUN y conservar perfil deadline-aware."
+    ],
+    "dod": [
+      "Ejecutar los oráculos/tests pertinentes a cada AC y registrar evidencia real en Backlog.md.",
+      "Actualizar contratos y documentación pública afectados; no declarar Done con comprobaciones relevantes NOT_RUN."
+    ]
+  },
+  {
+    "key": "NOE-091",
+    "phase": "FUT",
+    "priority": "low",
+    "size": "standard",
+    "dependencies": [
+      "NOE-089",
+      "NOE-086"
+    ],
+    "title": "Extensiones WASM con presupuesto",
+    "description": "SDK optativo para efectos puros no críticos; evaluar Wasmtime fuel y límites de memoria, negar imports no autorizados.",
+    "acceptance": [
+      "Módulo de fixture consume presupuesto y falla de forma controlada.",
+      "Imports no autorizados y memoria excesiva se rechazan.",
+      "Coste medido frente a nativo; no prometer hard real-time."
+    ],
+    "dod": [
+      "Ejecutar los oráculos/tests pertinentes a cada AC y registrar evidencia real en Backlog.md.",
+      "Actualizar contratos y documentación pública afectados; no declarar Done con comprobaciones relevantes NOT_RUN."
+    ]
+  },
+  {
+    "key": "NOE-092",
+    "phase": "FUT",
+    "priority": "low",
+    "size": "standard",
+    "dependencies": [
+      "NOE-083",
+      "NOE-090"
+    ],
+    "title": "Embebido y análisis de tiempo acotado",
+    "description": "Spike de subset no_std sobre control de referencia, sin JVM, red o heap en ciclo; identificar WCET/interrupts/RTOS requeridos.",
+    "acceptance": [
+      "Compila subset o explica impedimento verificable con plataforma concreta.",
+      "Documenta alcance del análisis, memoria, plazos y dependencias.",
+      "No promover garantía hard real-time sin análisis de peor caso y plataforma."
+    ],
+    "dod": [
+      "Ejecutar los oráculos/tests pertinentes a cada AC y registrar evidencia real en Backlog.md.",
+      "Actualizar contratos y documentación pública afectados; no declarar Done con comprobaciones relevantes NOT_RUN."
+    ]
+  },
+  {
+    "key": "NOE-093",
+    "phase": "M0",
+    "priority": "high",
+    "size": "standard",
+    "dependencies": [
+      "NOE-033"
+    ],
+    "title": "Projection SDK 2D independiente del renderer",
+    "description": "Crear escena mínima tipada con IDs, espacio/unidades, capas y primitivas (círculo, polilínea, rectángulo, etiqueta); proyección pura de snapshot a escena, sin acceso al entorno vivo.",
+    "acceptance": [
+      "Proyección de fixture a escena serializable y determinista en entorno fijado.",
+      "Dos fixtures con distintas escalas conservan posiciones y selección por ID estable.",
+      "Dependencias del crate excluyen Bevy, GPU y proveedores; no se requiere una UI para usarlo."
+    ],
+    "dod": [
+      "Ejecutar los oráculos/tests pertinentes a cada AC y registrar evidencia real en Backlog.md.",
+      "Actualizar contratos y documentación pública afectados; no declarar Done con comprobaciones relevantes NOT_RUN."
+    ]
+  },
+  {
+    "key": "NOE-094",
+    "phase": "M0",
+    "priority": "high",
+    "size": "endurance",
+    "dependencies": [
+      "NOE-093"
+    ],
+    "title": "Shell Studio y viewport compartido",
+    "description": "Probar Bevy + bevy_egui con versiones compatibles fijadas y fallback de dependencia si el spike falla; construir shell mínimo con selector por registro estático y viewport de escena 2D.",
+    "acceptance": [
+      "Escena fixture se muestra con cámara pan/zoom y ajuste de ventana en entorno gráfico documentado.",
+      "Dos labs fixture se alternan sin duplicar shell ni mantener recursos de la sesión previa.",
+      "Core y CLI headless compilan sin grafo de dependencias gráficas; prueba de render NOT_RUN se distingue de PASS."
+    ],
+    "dod": [
+      "Ejecutar los oráculos/tests pertinentes a cada AC y registrar evidencia real en Backlog.md.",
+      "Actualizar contratos y documentación pública afectados; no declarar Done con comprobaciones relevantes NOT_RUN."
+    ]
+  },
+  {
+    "key": "NOE-095",
+    "phase": "M0",
+    "priority": "high",
+    "size": "standard",
+    "dependencies": [
+      "NOE-094",
+      "NOE-066"
+    ],
+    "title": "Controles de sesión simulada",
+    "description": "Separar ControlPort de ObservationPort; pausa, paso, reset y velocidad virtual mediante comandos identificados y ACK; UI no accede a estado mutable.",
+    "acceptance": [
+      "Pausa/paso/reset generan ACK con revisión y tick; paso avanza exactamente un tick virtual.",
+      "Comando inválido, duplicado o de sesión obsoleta no altera el estado; rechazo visible.",
+      "Sesión física/remota sin capacidad de control se ofrece solo lectura; cerrar visor no detiene motor por defecto."
+    ],
+    "dod": [
+      "Ejecutar los oráculos/tests pertinentes a cada AC y registrar evidencia real en Backlog.md.",
+      "Actualizar contratos y documentación pública afectados; no declarar Done con comprobaciones relevantes NOT_RUN."
+    ]
+  },
+  {
+    "key": "NOE-096",
+    "phase": "M1",
+    "priority": "high",
+    "size": "standard",
+    "dependencies": [
+      "NOE-033",
+      "NOE-093",
+      "NOE-017"
+    ],
+    "title": "Capas de sensores y futuros FMC",
+    "description": "Definir muestras de futuros por decisión y capa reutilizable de polilíneas, sensores y terminales, separada de trayectoria ejecutada.",
+    "acceptance": [
+      "Fixtures distinguen realidad observada, hipótesis, futuro seleccionado y rechazado mediante leyenda y estilo.",
+      "Cambiar visibilidad y tasa de muestreo no cambia RNG, recompensa ni elección bajo presupuesto lógico.",
+      "Cap de muestras y bytes por frame; no se exporta cada walker por defecto."
+    ],
+    "dod": [
+      "Ejecutar los oráculos/tests pertinentes a cada AC y registrar evidencia real en Backlog.md.",
+      "Actualizar contratos y documentación pública afectados; no declarar Done con comprobaciones relevantes NOT_RUN."
+    ]
+  },
+  {
+    "key": "NOE-097",
+    "phase": "M1",
+    "priority": "medium",
+    "size": "standard",
+    "dependencies": [
+      "NOE-094",
+      "NOE-033"
+    ],
+    "title": "Inspector genérico por entidad",
+    "description": "Campos tipados de estado, unidad, procedencia, edad y calidad; selección por ID estable; control de niveles de detalle por suscripción.",
+    "acceptance": [
+      "Seleccionar entidad muestra campos reales del snapshot, incluyendo unidades y revisión.",
+      "Entidad desaparecida o datos caducados se señalan sin referencias a otra entidad reciclada.",
+      "Inspector consume schema común y admite campos nuevos sin panel dedicado."
+    ],
+    "dod": [
+      "Ejecutar los oráculos/tests pertinentes a cada AC y registrar evidencia real en Backlog.md.",
+      "Actualizar contratos y documentación pública afectados; no declarar Done con comprobaciones relevantes NOT_RUN."
+    ]
+  },
+  {
+    "key": "NOE-098",
+    "phase": "M1",
+    "priority": "high",
+    "size": "standard",
+    "dependencies": [
+      "NOE-033",
+      "NOE-005"
+    ],
+    "title": "Traza científica y snapshots de replay",
+    "description": "Separar traza durable de frame visual: entradas, acciones, semillas por flujo, revisiones, checkpoint y gaps. Escritura fuera del control crítico y finalización con manifest de completitud.",
+    "acceptance": [
+      "Round trip de fixture reconstruye ticks y acciones; formato versionado incluye build/spec/modelo/seed.",
+      "Overflow o fallo de disco marca traza incompleta o para experimento según política; nunca simula completitud ni bloquea control.",
+      "Registro con cuotas y política de datos sensibles; checkpoints no incluyen credenciales."
+    ],
+    "dod": [
+      "Ejecutar los oráculos/tests pertinentes a cada AC y registrar evidencia real en Backlog.md.",
+      "Actualizar contratos y documentación pública afectados; no declarar Done con comprobaciones relevantes NOT_RUN."
+    ]
+  },
+  {
+    "key": "NOE-099",
+    "phase": "M1",
+    "priority": "medium",
+    "size": "standard",
+    "dependencies": [
+      "NOE-098",
+      "NOE-094"
+    ],
+    "title": "Timeline y replay desconectado",
+    "description": "Abrir traza sin motor ni red, buscar tick, paso, pausa y velocidad de reproducción; reutilizar mismas proyecciones del modo live.",
+    "acceptance": [
+      "Abrir grabación de Grid, hacer seek y comparar escenas con fixtures de ticks conocidos.",
+      "Gaps y versiones incompatibles se muestran; replay no puede llamar sensores externos ni actuadores.",
+      "Separar reloj de reproducción del reloj virtual del mundo; cambio de vista no altera archivo."
+    ],
+    "dod": [
+      "Ejecutar los oráculos/tests pertinentes a cada AC y registrar evidencia real en Backlog.md.",
+      "Actualizar contratos y documentación pública afectados; no declarar Done con comprobaciones relevantes NOT_RUN."
+    ]
+  },
+  {
+    "key": "NOE-101",
+    "phase": "M3",
+    "priority": "high",
+    "size": "standard",
+    "dependencies": [
+      "NOE-095",
+      "NOE-067",
+      "NOE-070"
+    ],
+    "title": "Parámetros dinámicos y comandos tipados",
+    "description": "Publicar descriptores de parámetros con tipo, rango, unidad y mutabilidad; aplicar en frontera de tick con revisión y registrar evento. Cambios estructurales siguen compilación y reemplazo explícito.",
+    "acceptance": [
+      "Cambio autorizado de valor dinámico produce ACK, revisión y evento reproducible.",
+      "Cambio fuera de rango, de permiso o estructural se rechaza sin mutación parcial.",
+      "UI genera controles a partir de schema y respeta modo read-only; no ejecuta Kotlin ni acceso directo a actuador."
+    ],
+    "dod": [
+      "Ejecutar los oráculos/tests pertinentes a cada AC y registrar evidencia real en Backlog.md.",
+      "Actualizar contratos y documentación pública afectados; no declarar Done con comprobaciones relevantes NOT_RUN."
+    ]
+  },
+  {
+    "key": "NOE-102",
+    "phase": "M2",
+    "priority": "medium",
+    "size": "standard",
+    "dependencies": [
+      "NOE-097",
+      "NOE-073",
+      "NOE-076"
+    ],
+    "title": "Inspector cognitivo y comunicación",
+    "description": "Proyección común de creencias, evidencias, episodios, intenciones y mensajes; confidencial por defecto; mostrar incertidumbre y fuente sin inferir causalidad no registrada.",
+    "acceptance": [
+      "Fixture enseña hipótesis contradictorias y su actualización con fuente/edad y confianza diferenciadas.",
+      "Mensajes y memoria aparecen según autorización, con redacción y campos desconocidos explícitos.",
+      "Panel reutilizado por al menos dos fixtures; ningún modelo remoto llamado para dibujar."
+    ],
+    "dod": [
+      "Ejecutar los oráculos/tests pertinentes a cada AC y registrar evidencia real en Backlog.md.",
+      "Actualizar contratos y documentación pública afectados; no declarar Done con comprobaciones relevantes NOT_RUN."
+    ]
+  },
+  {
+    "key": "NOE-103",
+    "phase": "M2",
+    "priority": "medium",
+    "size": "standard",
+    "dependencies": [
+      "NOE-102",
+      "NOE-026",
+      "NOE-095",
+      "NOE-028"
+    ],
+    "title": "Language World visual e interacción humana",
+    "description": "Añadir proyección de mapa parcial vs ground truth de evaluador y canal de entrada humana por puerto semántico; replay con proveedor offline.",
+    "acceptance": [
+      "Aviso humano correcto/falso modifica creencias mediante core y muestra traza de actualización.",
+      "Ask aparece como acción epistémica y respuesta offline; permisos y latencia no bloquean ciclo.",
+      "Vistas de agente/evaluador explícitas; ground truth nunca se filtra al planner ni se usa como sensor."
+    ],
+    "dod": [
+      "Ejecutar los oráculos/tests pertinentes a cada AC y registrar evidencia real en Backlog.md.",
+      "Actualizar contratos y documentación pública afectados; no declarar Done con comprobaciones relevantes NOT_RUN."
+    ]
+  },
+  {
+    "key": "NOE-104",
+    "phase": "M3",
+    "priority": "medium",
+    "size": "standard",
+    "dependencies": [
+      "NOE-037",
+      "NOE-038",
+      "NOE-098"
+    ],
+    "title": "Life: experimento evolutivo headless",
+    "description": "Extraer análisis de población del antiguo lab visual: métricas de nacimientos, extinciones, energía y distribución de genes por múltiples semillas; mismo runner y sin UI.",
+    "acceptance": [
+      "Experimento reproducible reporta supervivencia/extinción y distribución de genes con denominadores.",
+      "Controles de mutación y seeds quedan en spec/trace; caso de extinción no se descarta.",
+      "No se afirma emergencia sin baselines; métricas exportables sin renderer."
+    ],
+    "dod": [
+      "Ejecutar los oráculos/tests pertinentes a cada AC y registrar evidencia real en Backlog.md.",
+      "Actualizar contratos y documentación pública afectados; no declarar Done con comprobaciones relevantes NOT_RUN."
+    ]
+  },
+  {
+    "key": "NOE-105",
+    "phase": "M3",
+    "priority": "medium",
+    "size": "standard",
+    "dependencies": [
+      "NOE-099",
+      "NOE-005",
+      "NOE-007"
+    ],
+    "title": "Depurador contrafactual desde checkpoint",
+    "description": "Crear rama aislada de una simulación guardada con acción alternativa; mostrar comparación y fidelidad de modelo. Nunca rewind físico ni efecto externo.",
+    "acceptance": [
+      "Mismo checkpoint permite repetir acción y explorar alternativa con resultado independiente.",
+      "Rama guarda ID del padre, tick, seed y modelo; no muta traza original ni entorno activo.",
+      "Vista diferencia predicción de observación y rechaza rama si checkpoint insuficiente."
+    ],
+    "dod": [
+      "Ejecutar los oráculos/tests pertinentes a cada AC y registrar evidencia real en Backlog.md.",
+      "Actualizar contratos y documentación pública afectados; no declarar Done con comprobaciones relevantes NOT_RUN."
+    ]
+  },
+  {
+    "key": "NOE-106",
+    "phase": "M3",
+    "priority": "medium",
+    "size": "standard",
+    "dependencies": [
+      "NOE-018",
+      "NOE-098"
+    ],
+    "title": "Arena: comparación científica sin UI",
+    "description": "Componer runner para ejecutar dos planificadores con iguales escenarios/seeds y presupuestos; reutilizar baselines existentes y metadatos.",
+    "acceptance": [
+      "Resultados pareados muestran éxito, presupuesto y dispersión con mismo acceso a observación.",
+      "Fallo o timeout aparece con denominador y no se elimina; semillas de holdout separadas.",
+      "Runner headless produce trazas compatibles sin requerir Bevy ni nuevos algoritmos."
+    ],
+    "dod": [
+      "Ejecutar los oráculos/tests pertinentes a cada AC y registrar evidencia real en Backlog.md.",
+      "Actualizar contratos y documentación pública afectados; no declarar Done con comprobaciones relevantes NOT_RUN."
+    ]
+  },
+  {
+    "key": "NOE-107",
+    "phase": "M3",
+    "priority": "medium",
+    "size": "standard",
+    "dependencies": [
+      "NOE-106",
+      "NOE-099"
+    ],
+    "title": "Arena: vistas sincronizadas",
+    "description": "Comparar dos trazas mediante viewport compartido y timeline lógico, métricas comparables y run IDs distintivos.",
+    "acceptance": [
+      "Dos ejecuciones se visualizan lado a lado con tick común y semilla visible.",
+      "Diferencias de longitud, ritmo y gaps no inventan correspondencias ni resultados.",
+      "Reutiliza proyecciones, renderer y métricas del runner; reproducible sin ejecutar planners en UI."
+    ],
+    "dod": [
+      "Ejecutar los oráculos/tests pertinentes a cada AC y registrar evidencia real en Backlog.md.",
+      "Actualizar contratos y documentación pública afectados; no declarar Done con comprobaciones relevantes NOT_RUN."
+    ]
+  },
+  {
+    "key": "NOE-109",
+    "phase": "M5",
+    "priority": "medium",
+    "size": "standard",
+    "dependencies": [
+      "NOE-052",
+      "NOE-093",
+      "NOE-097"
+    ],
+    "title": "VisualizationSpec declarativa",
+    "description": "Definir vistas, capas e inspector por IDs del catálogo; Kotlin builder genera sección portable, opcional para plan headless. Validar referencias y descriptores de parámetros.",
+    "acceptance": [
+      "JSON y Kotlin generan VisualizationSpec equivalente con unidades y referencias comprobadas.",
+      "Proyección no registrada, capa desconocida o configuración incompatible produce diagnóstico localizable.",
+      "Artefacto headless ignora vista opcional sin activar dependencias gráficas ni ejecutar JVM."
+    ],
+    "dod": [
+      "Ejecutar los oráculos/tests pertinentes a cada AC y registrar evidencia real en Backlog.md.",
+      "Actualizar contratos y documentación pública afectados; no declarar Done con comprobaciones relevantes NOT_RUN."
+    ]
+  },
+  {
+    "key": "NOE-110",
+    "phase": "M5",
+    "priority": "medium",
+    "size": "standard",
+    "dependencies": [
+      "NOE-093",
+      "NOE-094",
+      "NOE-097",
+      "NOE-048"
+    ],
+    "title": "SDK de proyecciones para tercero",
+    "description": "Exponer ejemplo externo que registra lab y proyección sin tocar shell; separar LabDescriptor de dominio y contratos gráficos; escape hatch de vista especializada sólo en Studio.",
+    "acceptance": [
+      "Proyecto consumidor registra escena 2D y campos inspector sin modificar código Studio.",
+      "Conformance comprueba IDs, unidades, límites de frames y ausencia de permisos de actuación.",
+      "Rustdoc explica estabilidad, versiones, y cómo ejecutar lab sin dependencias de UI; API v0 explícita."
+    ],
+    "dod": [
+      "Ejecutar los oráculos/tests pertinentes a cada AC y registrar evidencia real en Backlog.md.",
+      "Actualizar contratos y documentación pública afectados; no declarar Done con comprobaciones relevantes NOT_RUN."
+    ]
+  },
+  {
+    "key": "NOE-111",
+    "phase": "M4",
+    "priority": "medium",
+    "size": "standard",
+    "dependencies": [
+      "NOE-042",
+      "NOE-094",
+      "NOE-096"
+    ],
+    "title": "Retro: framebuffer y overlay",
+    "description": "Convertir frame real del emulador libre a textura y proyectar overlays en coordenadas de imagen; sin recrear sprites ni requerir ROM comercial.",
+    "acceptance": [
+      "Homebrew muestra frames correctos y relación píxel/pantalla tras resize.",
+      "Percepción privilegiada y pixel-only se distinguen; no se inventan detecciones.",
+      "Drop de frames y comandos del emulador separados; ejecución headless y licencias preservadas."
+    ],
+    "dod": [
+      "Ejecutar los oráculos/tests pertinentes a cada AC y registrar evidencia real en Backlog.md.",
+      "Actualizar contratos y documentación pública afectados; no declarar Done con comprobaciones relevantes NOT_RUN."
+    ]
+  },
+  {
+    "key": "NOE-112",
+    "phase": "M4",
+    "priority": "medium",
+    "size": "endurance",
+    "dependencies": [
+      "NOE-045",
+      "NOE-094",
+      "NOE-097"
+    ],
+    "title": "Robótica: proyección 3D acotada",
+    "description": "Introducir vista 3D de poses/articulaciones y mapa simple usando Bevy o framebuffer del simulador si adecuado; evitar reconstruir física o assets complejos.",
+    "acceptance": [
+      "Robot simulado muestra pose y orientación con sistema de coordenadas/unidades documentado.",
+      "Cambio de cámara no altera física; datos caducados e incertidumbre visibles.",
+      "No requiere hardware; estado gráfico y snapshot de integración no se confunden."
+    ],
+    "dod": [
+      "Ejecutar los oráculos/tests pertinentes a cada AC y registrar evidencia real en Backlog.md.",
+      "Actualizar contratos y documentación pública afectados; no declarar Done con comprobaciones relevantes NOT_RUN."
+    ]
+  },
+  {
+    "key": "NOE-113",
+    "phase": "M3",
+    "priority": "medium",
+    "size": "standard",
+    "dependencies": [
+      "NOE-079",
+      "NOE-094",
+      "NOE-097"
+    ],
+    "title": "Automation: vista de grafo y eventos",
+    "description": "Proyectar nodos/edges del plan compilado y estados de workflow del supervisor local; layout sencillo y selección común; sin editor de grafos genérico.",
+    "acceptance": [
+      "Nodos, dependencias y transición activa coinciden con plan y eventos del fixture.",
+      "Errores/retries y tiempos se muestran sin marcar efectos propuestos como ejecutados.",
+      "Lab funciona sin FMC ni Jev real y usa el mismo runtime y trace."
+    ],
+    "dod": [
+      "Ejecutar los oráculos/tests pertinentes a cada AC y registrar evidencia real en Backlog.md.",
+      "Actualizar contratos y documentación pública afectados; no declarar Done con comprobaciones relevantes NOT_RUN."
+    ]
+  },
+  {
+    "key": "NOE-114",
+    "phase": "FUT",
+    "priority": "low",
+    "size": "standard",
+    "dependencies": [
+      "NOE-101",
+      "NOE-109"
+    ],
+    "title": "Playground: edición mínima de escenario",
+    "description": "Edición de recursos/obstáculos de Grid en modo diseño, genera SystemSpec/ExperimentSpec; cambios estructurales requieren validar antes de instanciar. No editor generalista.",
+    "acceptance": [
+      "Guardar y cargar escenario produce plan válido y reproducible con seed.",
+      "Edición inválida conserva definición anterior; deshacer en modo diseño no hace rewind externo.",
+      "Ejecutar escenario editado mediante CLI sin Studio; contrato de configuración único."
+    ],
+    "dod": [
+      "Ejecutar los oráculos/tests pertinentes a cada AC y registrar evidencia real en Backlog.md.",
+      "Actualizar contratos y documentación pública afectados; no declarar Done con comprobaciones relevantes NOT_RUN."
+    ]
+  },
+  {
+    "key": "NOE-115",
+    "phase": "FUT",
+    "priority": "low",
+    "size": "standard",
+    "dependencies": [
+      "NOE-098",
+      "NOE-099"
+    ],
+    "title": "Exportador Rerun opcional",
+    "description": "Convertir trace seleccionado a recording Rerun con tiempos, entidades y vistas; sin segundo formato fuente ni duplicar registro científico.",
+    "acceptance": [
+      "Fixture exportado se abre en viewer con sincronización de tiempo y unidades.",
+      "Datos faltantes y redacciones se conservan; no exportar mensajes/secretos sin permiso.",
+      "Core funciona sin Rerun y exportación puede omitirse/descartarse sin afectar replay."
+    ],
+    "dod": [
+      "Ejecutar los oráculos/tests pertinentes a cada AC y registrar evidencia real en Backlog.md.",
+      "Actualizar contratos y documentación pública afectados; no declarar Done con comprobaciones relevantes NOT_RUN."
+    ]
+  },
+  {
+    "key": "NOE-116",
+    "phase": "FUT",
+    "priority": "low",
+    "size": "endurance",
+    "dependencies": [
+      "NOE-110",
+      "NOE-109"
+    ],
+    "title": "Spike playground web portable",
+    "description": "Probar lectura de scene/trace en navegador con WebGPU o WebGL2 fallback; no portar motor entero ni conectar actuadores.",
+    "acceptance": [
+      "Fixture Grid se muestra desde contrato existente; soporte/navegador y limitaciones registrados.",
+      "Se cuantifican copia, memoria y latencia; comparar complejidad con renderer nativo.",
+      "Si no compensa, documentar decisión KEEP_AS_IS; ningún requisito web bloquea MVP."
+    ],
+    "dod": [
+      "Ejecutar los oráculos/tests pertinentes a cada AC y registrar evidencia real en Backlog.md.",
+      "Actualizar contratos y documentación pública afectados; no declarar Done con comprobaciones relevantes NOT_RUN."
+    ]
+  },
+  {
+    "key": "NOE-034",
+    "phase": "M0",
+    "priority": "high",
+    "size": "standard",
+    "dependencies": [
+      "NOE-095",
+      "NOE-009"
+    ],
+    "title": "GridWorld en Studio",
+    "description": "Primer vertical slice de un mundo real con proyección de Grid, obstáculos y agente usando Projection SDK y shell. Mantener la simulación headless disponible.",
+    "acceptance": [
+      "Mismo Grid y seed producen misma secuencia lógica con y sin visor en modalidad determinista por pasos.",
+      "Pausa, paso y reset operan sobre sesión Grid y se visualizan con ACK real.",
+      "No hay otro motor Grid ni bucle de simulación dentro del renderer; guía de ejecución local."
+    ],
+    "dod": [
+      "Ejecutar los oráculos/tests pertinentes a cada AC y registrar evidencia real en Backlog.md.",
+      "Actualizar contratos y documentación pública afectados; no declarar Done con comprobaciones relevantes NOT_RUN."
+    ]
+  },
+  {
+    "key": "NOE-035",
+    "phase": "M3",
+    "priority": "medium",
+    "size": "standard",
+    "dependencies": [
+      "NOE-034",
+      "NOE-032",
+      "NOE-096",
+      "NOE-097",
+      "NOE-101"
+    ],
+    "title": "Studio Kart: pista, sensores y futuros",
+    "description": "Proyección del circuito y coches desde KartWorld; overlay común para sensores/FMC/colisiones y controles de parámetros permitidos.",
+    "acceptance": [
+      "Pista, vehículo y acción coinciden con snapshot; muestra elegida/rechazada con leyenda.",
+      "Seleccionar coche reutiliza inspector y capas; cambios de presupuesto autorizados quedan en trace.",
+      "Mismo mundo y planificador en CLI; no se introduce renderer ni planner específico duplicado."
+    ],
+    "dod": [
+      "Ejecutar los oráculos/tests pertinentes a cada AC y registrar evidencia real en Backlog.md.",
+      "Actualizar contratos y documentación pública afectados; no declarar Done con comprobaciones relevantes NOT_RUN."
+    ]
+  },
+  {
+    "key": "NOE-039",
+    "phase": "M3",
+    "priority": "medium",
+    "size": "standard",
+    "dependencies": [
+      "NOE-104",
+      "NOE-034",
+      "NOE-096",
+      "NOE-097",
+      "NOE-101"
+    ],
+    "title": "Life: proyección compartida de organismos",
+    "description": "Representar recursos, organismos, especies, energía y genealogía por ID; reutilizar escena, inspector, selección y controles.",
+    "acceptance": [
+      "Organismos y recursos se proyectan desde snapshots y selección muestra genoma/energía.",
+      "Nacimientos y muertes no dejan entidades fantasma; mutación autorizada se refleja en trace.",
+      "Capas FMC solo de muestra seleccionada y métricas de población provienen de NOE-104, no se recalculan en GUI."
+    ],
+    "dod": [
+      "Ejecutar los oráculos/tests pertinentes a cada AC y registrar evidencia real en Backlog.md.",
+      "Actualizar contratos y documentación pública afectados; no declarar Done con comprobaciones relevantes NOT_RUN."
+    ]
+  },
+  {
+    "key": "NOE-057",
+    "phase": "FUT",
+    "priority": "low",
+    "size": "standard",
+    "dependencies": [
+      "NOE-033",
+      "NOE-104"
+    ],
+    "title": "Perfil y optimización basada en evidencia",
+    "description": "Medir snapshots, rollouts, p50/p95/p99, allocs y throughput de mundo antes de elegir SoA/Rayon/SIMD. Distinguir publicación, proyección y render del coste de simulación; usar métricas del ensayo de aislamiento si disponible.",
+    "acceptance": [
+      "Perfil identifica cuello medido y mejora deja oráculos equivalentes.",
+      "Comparación reproducible antes/después; si no mejora mantener baseline.",
+      "No introducir GPU ni paralelismo sin beneficio demostrado."
+    ],
+    "dod": [
+      "Ejecutar los oráculos/tests pertinentes a cada AC y registrar evidencia real en Backlog.md.",
+      "Actualizar contratos y documentación pública afectados; no declarar Done con comprobaciones relevantes NOT_RUN."
+    ]
+  },
+  {
+    "key": "NOE-100",
+    "phase": "M1",
+    "priority": "medium",
+    "size": "standard",
+    "dependencies": [
+      "NOE-019",
+      "NOE-034"
+    ],
+    "title": "CartPole visual sin duplicar física",
+    "description": "Proyección 2D de posición, ángulo, fuerza y límites; utiliza shell, cámara y controls comunes.",
+    "acceptance": [
+      "Péndulo y carro se dibujan desde snapshots del simulador existente y valores coinciden con fixture.",
+      "Pausa/paso/reseteo y objetivo visual distinguen estado y acción; no añadir controlador al render.",
+      "El modelo físico sigue compilando y ejecutándose headless."
+    ],
+    "dod": [
+      "Ejecutar los oráculos/tests pertinentes a cada AC y registrar evidencia real en Backlog.md.",
+      "Actualizar contratos y documentación pública afectados; no declarar Done con comprobaciones relevantes NOT_RUN."
+    ]
+  },
+  {
+    "key": "NOE-108",
+    "phase": "M3",
+    "priority": "high",
+    "size": "standard",
+    "dependencies": [
+      "NOE-034",
+      "NOE-083",
+      "NOE-084"
+    ],
+    "title": "Aislamiento temporal del visor bajo carga",
+    "description": "Ensayar modo sin visor, normal, lento y desconectado bajo carga reproducible; medir jitter, misses, allocs y coste de publicación. Distinguir sensor virtual del visor.",
+    "acceptance": [
+      "Reporte con plataforma/configuración/semillas y p50/p99/max/misses comparables; no WCET.",
+      "Colas visuales acotadas y sin bloqueo de control demostrados con consumidor lento; gaps visibles.",
+      "Comparación determinista por presupuesto lógico conserva decisiones; si deadline real difiere se registra, no se promete cero impacto."
+    ],
+    "dod": [
+      "Ejecutar los oráculos/tests pertinentes a cada AC y registrar evidencia real en Backlog.md.",
+      "Actualizar contratos y documentación pública afectados; no declarar Done con comprobaciones relevantes NOT_RUN."
+    ]
+  },
+  {
+    "key": "NOE-117",
+    "phase": "M5",
+    "priority": "medium",
+    "size": "standard",
+    "dependencies": [
+      "NOE-034",
+      "NOE-035",
+      "NOE-039",
+      "NOE-100",
+      "NOE-103",
+      "NOE-113",
+      "NOE-099"
+    ],
+    "title": "Smoke integrado de Studio y distribución visual",
+    "description": "Empaquetar Studio opcional y verificar laboratorios nativos, live/replay, selección y controls con un entorno gráfico explícito y fixtures en CI headless.",
+    "acceptance": [
+      "Grid, CartPole, Racing, Life, Language World y Automation arrancan en shell común; recorrido reproducible.",
+      "CI headless comprueba contratos y proyecciones, test gráfico ejecutado en entorno soportado distingue NOT_RUN.",
+      "Distribución CLI funciona sin GPU/UI, Studio se distribuye aparte/opcional; permisos y licencias documentados."
+    ],
+    "dod": [
+      "Ejecutar los oráculos/tests pertinentes a cada AC y registrar evidencia real en Backlog.md.",
+      "Actualizar contratos y documentación pública afectados; no declarar Done con comprobaciones relevantes NOT_RUN."
+    ]
+  },
+  {
+    "key": "NOE-054",
+    "phase": "M6",
+    "priority": "medium",
+    "size": "standard",
+    "dependencies": [
+      "NOE-020",
+      "NOE-030",
+      "NOE-032",
+      "NOE-039",
+      "NOE-048",
+      "NOE-079",
+      "NOE-083",
+      "NOE-084",
+      "NOE-089",
+      "NOE-088",
+      "NOE-117",
+      "NOE-108",
+      "NOE-110",
+      "NOE-109",
+      "NOE-104"
+    ],
+    "title": "Suite de release MVP y paquetes",
+    "description": "Release MVP reproducible del núcleo general/cognitivo, SDK Rust, frontend Kotlin de autoría y ejemplos. Incluye CartPole, Grid, Language World, Kart, Life, servicio local y control multirritmo simulado. No requiere Mario comercial, robot físico, Jev live, SDK Python ni WASM. Studio nativo opcional con seis proyecciones, replay e inspector reutilizable; CLI separada. La release no exige Arena, contrafactual, editor, Rerun ni 3D/web.",
+    "acceptance": [
+      "Usuario nuevo ejecuta seis labs offline y control multirritmo; artefacto Kotlin corre sin JVM; Studio opcional abre los seis labs usando un shell común.",
+      "CI comprueba tests, licencias, conformance externo, métricas temporales y fixtures; smoke visual sustentado por NOE-117; fallos científicos se reportan sin ocultar.",
+      "Distribución pre-1.0 con perfiles, límites de seguridad/tiempo real y compatibilidad documentados; sin publicación automática."
+    ],
+    "dod": [
+      "Ejecutar los oráculos/tests pertinentes a cada AC y registrar evidencia real en Backlog.md.",
+      "Actualizar contratos y documentación pública afectados; no declarar Done con comprobaciones relevantes NOT_RUN."
+    ]
+  }
+]

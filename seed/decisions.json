@@ -1,0 +1,119 @@
+[
+  {
+    "key": "NOESIS-D01",
+    "title": "Rust local-first y monorepo",
+    "context": "Se requiere alto rendimiento y separación de efectos.",
+    "decision": "Rust estable para todos los módulos oficiales core y SDK; Kotlin solo autoría declarativa de Spec. Extraer crates cuando existan seams reales.",
+    "alternatives": "Python para prototipos de referencia; Kotlin para DSL embebido.",
+    "consequences": "Runtime sin JVM; herramientas de autoría separadas. Ninguna capacidad core depende de un proveedor externo.",
+    "status": "proposed"
+  },
+  {
+    "key": "NOESIS-D02",
+    "title": "Modelo sin autoridad de actuación",
+    "context": "Explorar miles de futuros sin efectos externos.",
+    "decision": "Separar modelo generativo, entorno vivo, planificador y guardia.",
+    "alternatives": "Interfaz única de step para simulación y ejecución.",
+    "consequences": "Más contratos pequeños; riesgo físico reducido y verificable.",
+    "status": "proposed"
+  },
+  {
+    "key": "NOESIS-D03",
+    "title": "Cognición core y Jev como adaptador opcional",
+    "context": "Lenguaje humano como observación falible, no mandato.",
+    "decision": "Cognición, grounding, creencias y comunicación son módulos oficiales; Jev es proveedor detrás de puerto replay-first, separado de calibración y control.",
+    "alternatives": "LLM como controlador secuencial; Jev por cada walker.",
+    "consequences": "Dependencia externa aislada; se requiere dataset/calibración.",
+    "status": "proposed"
+  },
+  {
+    "key": "NOESIS-D04",
+    "title": "Ciencia falsable, no promesa de AGI",
+    "context": "CEF y FMC son fundamentos diferentes, resultados no reproducidos aquí.",
+    "decision": "Fijar algoritmo, baseline, presupuesto, seeds y límites; primero Grid y CartPole.",
+    "alternatives": "Heurística sin referencia; afirmar superioridad por demo.",
+    "consequences": "Resultados negativos aceptados; mejora incremental.",
+    "status": "proposed"
+  },
+  {
+    "key": "NOESIS-D05",
+    "title": "Spec temprana y DSL Kotlin de autoría compilada",
+    "context": "Propósito general y ejecución nativa predecible sin perder expresividad declarativa.",
+    "decision": "SystemSpec temprano; compilador Rust a plan inmutable; frontend Kotlin emite Spec y no existe en ciclo de ejecución. Sin VM general ni Rust generado por defecto.",
+    "alternatives": "Rust Builder único; DSL externo propio; JNI/Panama en hot path.",
+    "consequences": "Esquema portable, expresiones restringidas, compatibilidad y diagnósticos; scripting solo opcional de confianza.",
+    "status": "proposed"
+  },
+  {
+    "key": "NOESIS-D06",
+    "title": "Home Repo privado",
+    "context": "Backlog y conocimiento privados sin tracking paralelo.",
+    "decision": "noesis-home o XDG privado si no hay repo; CLI única autoridad, ZIP payload temporal.",
+    "alternatives": "Backlog público en producto, ROADMAP paralelo.",
+    "consequences": "No sincronizar tareas al repo de código; binding seleccionada explícitamente.",
+    "status": "proposed"
+  },
+  {
+    "key": "NOESIS-D07",
+    "title": "Seguridad y licencias de extensiones",
+    "context": "Mario, emuladores, ROS y modelos externos tienen límites propios.",
+    "decision": "Fixtures libres, ROM aportada por usuario, hardware solo con autorización, plugins estáticos primero; evaluar licencias antes de publicar.",
+    "alternatives": "Distribuir ROM, controlar actuadores directamente, cargar ABI dinámica no verificada.",
+    "consequences": "Ciertas pruebas live quedan NOT_RUN; release MVP no depende de ellas.",
+    "status": "proposed"
+  },
+  {
+    "key": "NOESIS-D08",
+    "title": "Core rico modular y extensiones delgadas",
+    "context": "Las capacidades fundacionales deben ser reutilizadas por dominios externos.",
+    "decision": "Núcleo oficial incluye runtime, información/entropía, FMC, sensores, cognición, creencias, memoria, motivación, aprendizaje, comunicación, automatización y simulación. Selección de capacidades por composición/carga; ningún proveedor obligatorio.",
+    "alternatives": "Microkernel sin algoritmos; monolito con dependencias de todos los dominios.",
+    "consequences": "Evitar duplicación en labs. SDK reexporta capacidades oficiales; no exigir crate por concepto.",
+    "status": "proposed"
+  },
+  {
+    "key": "NOESIS-D09",
+    "title": "Perfiles temporales y fallback independiente",
+    "context": "Los sistemas físicos y videojuegos requieren latencia predecible.",
+    "decision": "Relojes explícitos, scheduler multirritmo, canales acotados, planner anytime, control alternativo y métricas. General/Interactive/DeadlineAware primero, RT Linux/embebido experimental.",
+    "alternatives": "Un loop bloqueante o garantía hard RT general.",
+    "consequences": "La evidencia de capacidad es local a versión/plataforma; p99 no es WCET. IO y semántica fuera de ruta crítica.",
+    "status": "proposed"
+  },
+  {
+    "key": "NOESIS-D10",
+    "title": "Modelo inmutable y estado adaptativo separado",
+    "context": "Cambios de creencia, genes y motivación no deben recompilar.",
+    "decision": "Spec, plan compilado y estado/parametrización separados. Objetivos autorizados actualizan datos; cambios estructurales requieren preparación y cambio versionado.",
+    "alternatives": "Compilar cada agente o ejecutar Kotlin continuamente.",
+    "consequences": "Compartir plan entre organismos; el artefacto serializa datos, no direcciones ni código arbitrario.",
+    "status": "proposed"
+  },
+  {
+    "key": "NOESIS-D11",
+    "title": "Studio común con proyecciones de dominio",
+    "context": "Reutilizar visualización sin acoplar motor a renderer.",
+    "decision": "Shell compartido, Projection SDK neutral y Bevy + egui candidato inicial; raster/2D/3D/grafo específicos. Registro estático y vistas especializadas sólo cuando necesarias.",
+    "alternatives": "Una app por lab; engine de render propio; Rerun como visor único.",
+    "consequences": "Validar compatibilidad y render real mediante spike. Rerun exportador opcional; ninguna dependencia gráfica del core.",
+    "status": "proposed"
+  },
+  {
+    "key": "NOESIS-D12",
+    "title": "Observación y control separados",
+    "context": "Tiempo real aproximado, replay honesto y no interferencia.",
+    "decision": "Frames descartables, traza científica con gaps explícitos y checkpoints suficientes separados. Control por comandos con capacidad, ID, revisión y ACK en frontera segura.",
+    "alternatives": "Estado compartido mutable; callback de UI en hot loop; usar video como traza.",
+    "consequences": "Cuotas, redacción y política de overflow. El sensor cámara forma parte del entorno y se mide aparte; visor externo solo lectura por defecto.",
+    "status": "proposed"
+  },
+  {
+    "key": "NOESIS-D13",
+    "title": "Experimentar y proyectar el mismo contrato",
+    "context": "Evitar demos que divergen de los experimentos y SDK.",
+    "decision": "Mismo runner, spec, semillas, versiones y proyecciones para headless, vivo, replay, arena y ramas hipotéticas. Visualización opcional compilable; parámetros dinámicos no recompilan.",
+    "alternatives": "Motor separado por lab; registrar solo frame; editor generalista primero.",
+    "consequences": "MVP 2D y grafo sencillo; arena/ramas tras slices de base, editor y web futuros. Resultados contrafactuales son del modelo, no del mundo real.",
+    "status": "proposed"
+  }
+]

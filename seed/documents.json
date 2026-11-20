@@ -1,0 +1,74 @@
+[
+  {
+    "key": "NOESIS-DOC-01",
+    "title": "Visión y alcance",
+    "file": "vision.md",
+    "kind": "specification",
+    "path": "foundation",
+    "tags": [
+      "ctx:world",
+      "term:world.model"
+    ]
+  },
+  {
+    "key": "NOESIS-DOC-02",
+    "title": "Arquitectura funcional",
+    "file": "architecture.md",
+    "kind": "specification",
+    "path": "foundation",
+    "tags": [
+      "ctx:world",
+      "term:world.model",
+      "ctx:action",
+      "term:action.authorized"
+    ]
+  },
+  {
+    "key": "NOESIS-DOC-03",
+    "title": "Fundamentos y experimentos",
+    "file": "science.md",
+    "kind": "other",
+    "path": "research",
+    "tags": [
+      "kind:research",
+      "ctx:planning",
+      "term:planning.walker"
+    ]
+  },
+  {
+    "key": "NOESIS-DOC-04",
+    "title": "Sensor semántico",
+    "file": "semantic.md",
+    "kind": "specification",
+    "path": "foundation",
+    "tags": [
+      "ctx:semantic",
+      "term:semantic.signal"
+    ]
+  },
+  {
+    "key": "NOESIS-DOC-05",
+    "title": "Lenguaje ubicuo inicial",
+    "file": "glossary.md",
+    "kind": "other",
+    "path": "glossary",
+    "tags": [
+      "kind:term",
+      "ctx:world",
+      "term:world.state"
+    ]
+  },
+  {
+    "key": "NOESIS-DOC-06",
+    "title": "Studio, proyecciones y experimentación observable",
+    "file": "studio.md",
+    "kind": "specification",
+    "path": "foundation",
+    "tags": [
+      "ctx:studio",
+      "term:studio.projection",
+      "ctx:experiment",
+      "term:experiment.replay"
+    ]
+  }
+]
