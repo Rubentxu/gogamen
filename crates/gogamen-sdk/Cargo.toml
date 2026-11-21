@@ -1,0 +1,26 @@
+[package]
+name = "gogamen-sdk"
+version = "0.1.0-alpha"
+edition.workspace = true
+license.workspace = true
+description = "Public pre-1.0 Rust SDK, SystemSpec authoring surface, and conformance kit for Gogamen (std-only offline)."
+
+[dependencies]
+gogamen-compiler = { path = "../gogamen-compiler" }
+gogamen-core = { path = "../gogamen-core" }
+gogamen-runtime = { path = "../gogamen-runtime" }
+gogamen-spec = { path = "../gogamen-spec" }
+wasmtime = { version = "51", default-features = false, features = ["std", "runtime", "cranelift", "wat"], optional = true }
+
+[features]
+default = []
+# Extensiones WASM opcionales con presupuesto (fuel + memoria + allowlist de imports).
+wasm = ["dep:wasmtime"]
+
+[[example]]
+name = "wasm_bench"
+required-features = ["wasm"]
+
+[[test]]
+name = "wasm_budget"
+required-features = ["wasm"]
