@@ -1,0 +1,43 @@
+# cargo-deny policy for the Gogamen workspace (pre-1.0, local release checks only).
+# Run: cargo deny --offline check licenses bans sources   (advisories need the RustSec DB, see scripts/release_check.sh)
+
+[graph]
+all-features = true
+
+[advisories]
+# The advisory DB is fetched from the network; scripts/release_check.sh reports NOT_RUN when unavailable.
+yanked = "warn"
+ignore = [
+    # `paste` is unmaintained (not a vulnerability); reached only via rerun -> gogamen-rerun-export
+    # (optional exporter, not part of core/cli). Revisit when rerun drops it.
+    { id = "RUSTSEC-2024-0436", reason = "unmaintained transitive dep of the optional rerun exporter" },
+]
+
+[licenses]
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Unicode-3.0",
+    "Zlib",
+    "MPL-2.0",
+    "CC0-1.0",
+    "BSL-1.0",
+    "CDLA-Permissive-2.0",
+    # Bundled egui fonts (optional `window` feature only).
+    "OFL-1.1",
+    "Ubuntu-font-1.0",
+]
+confidence-threshold = 0.8
+
+[bans]
+multiple-versions = "warn"
+wildcards = "allow"
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
