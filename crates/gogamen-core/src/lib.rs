@@ -24,9 +24,14 @@
 pub mod action;
 pub mod belief;
 pub mod capability;
+pub mod causal_revision;
+pub mod causal_rule;
 pub mod clock;
 pub mod communication;
+pub mod conditional_effects;
 pub mod connection;
+pub mod control_bits;
+pub mod decisive_moments;
 pub mod determinism;
 pub mod domain;
 pub mod empowerment;
@@ -38,18 +43,30 @@ pub mod fmc_incremental;
 pub mod fmc_planner;
 pub mod fmc_scoring;
 pub mod fmc_walkers;
+pub mod freedom_field;
 pub mod goals;
 pub mod grounding;
 pub mod guard;
+pub mod learned_model;
 pub mod learning;
+pub mod learning_progress;
 pub mod memory;
+pub mod memory_views;
+pub mod microstate;
+pub mod microstate_profile;
 pub mod model;
 pub mod motivation;
 pub mod observability;
 pub mod planner;
+pub mod posterior_sampling;
+pub mod predicate_invention;
 pub mod procedural_memory;
 pub mod provenance;
+pub mod question_tree;
+pub mod racing_stop;
+pub mod scale;
 pub mod scheduler;
+pub mod selection_principle;
 pub mod semantic_memory;
 pub mod snapshot;
 pub mod system;
@@ -68,6 +85,10 @@ pub use capability::{
     ModuleId, ModuleManifest, ModuleOrigin, ObservedEvidence, OperationBinding, OperationId,
     OperationSpec, Permission, PermissionSet, TemporalProfile, ValidatedOperation,
 };
+pub use causal_revision::{
+    CausalRevisor, ModelRevision, RejectReason, RejectedCandidate, RevisedPrediction,
+    RevisionCause, RevisionConfig, RevisionOutcome,
+};
 pub use clock::{
     MonotonicClock, MonotonicDeadline, MonotonicInstant, SystemMonotonicClock,
     TemporalReplayVerdict, TemporalTrace, TemporalTraceEntry, VirtualMonotonicClock,
@@ -79,11 +100,26 @@ pub use communication::{
     OfflineTemplate, OfflineTemplateKind, ReplyOutcome, SituatedMessage, TemplateId,
     TemplateRegistry,
 };
+pub use conditional_effects::{
+    BitPrediction, ConditionalBudget, ConditionalConfig, ConditionalEffectsLearner,
+    ConditionalError, ConditionalModelVersion, ConditionalObservation, ConditionalUpdateStatus,
+    HoldoutScores, Literal, PredictionHealth, UpdateRecord, prior_scores,
+};
 pub use connection::{
     BufferSlot, CausalKind, CompiledDelayedTransfer, CompiledNodeMeta, CompiledPlan,
     CompiledPortMeta, CompiledTransfer, ConnectionError, ConnectionGraph, ConnectionIndex,
     ConnectionSpec, NodeId, NodeIndex, NodeSpec, PlanRuntime, PortDirection, PortId, PortIndex,
     PortSpec, PortType, TypeMismatchError,
+};
+pub use control_bits::{
+    CLONING_BIAS_NOTE, CONTROL_BITS_ESTIMATOR_VERSION, CONTROL_BITS_MIN_SPEARMAN,
+    ControlBitsConfig, ControlBitsError, ControlBitsEstimate, control_bits_from_pairs,
+    control_bits_from_population, control_bits_from_population_on_scale, control_bits_from_walkers,
+    control_bits_from_walkers_on_scale,
+};
+pub use decisive_moments::{
+    DecisionInput, DecisionSample, DecisiveError, DecisiveEvent, DecisiveTimeline, PairPredicate,
+    ThresholdSource, fit_pair_predicates, mark_decisive, predicate_accuracy, viability_spread,
 };
 pub use determinism::{
     DeterminismMetadata, DeterministicClock, LogicalClock, MasterSeed, RngStreamRegistry, Seed,
@@ -114,7 +150,10 @@ pub use error::{DomainError, EnvironmentError, ModelError, SnapshotError, Valida
 pub use fmc_incremental::{
     CheckpointOutcome, CheckpointStatus, FmcIncrementalError, IncrementalFmcSession,
 };
-pub use fmc_planner::{FmcPlanner, FmcPlannerConfig, FmcPlannerError, FmcTraceSummary};
+pub use fmc_planner::{
+    FmcPlanner, FmcPlannerConfig, FmcPlannerError, FmcRootViability, FmcStepRootViability,
+    FmcTraceSummary,
+};
 pub use fmc_scoring::{
     CompanionPair, FmcScoringConfig, FmcScoringError, FmcScratchWorkspace, PopulationScore,
     ResampleDecision, ResampleReport, cloning_probability, compute_virtual_rewards,
@@ -124,6 +163,10 @@ pub use fmc_scoring::{
 };
 pub use fmc_walkers::{
     PopulationError, WalkerAncestry, WalkerId, WalkerPopulation, WalkerStepReport,
+};
+pub use freedom_field::{
+    ActionMeasure, FreedomField, FreedomFieldConfig, FreedomFieldError, FreedomFieldKey,
+    FreedomFieldStore, FreedomIteration, FreedomKernel,
 };
 pub use goals::{
     ActiveGoal, GoalAuthority, GoalAuthorityScope, GoalAuthorization, GoalChangeProposal,
@@ -138,16 +181,34 @@ pub use guard::{
     ActionGuard, ActionProposal, DomainPrecondition, GuardContext, GuardDecision,
     GuardRejectionReason, NoPrecondition, SafeFallbackPolicy,
 };
+pub use learned_model::{
+    BucketPrediction, LearnedModelConfig, LearnedModelError, LearnedStepReport, ModelVersion,
+    TabularLearnedModel, TabularScale, UnseenPairPolicy, plan_fmc_on_version, plan_fmc_with_scale,
+};
 pub use learning::{
     DEFAULT_MAX_DEDUP_WINDOW, DEFAULT_MIN_LOG_LOSS_PROB, HoldoutEval, IncrementalLearner,
     LEARNING_SCHEMA_VERSION, LearnOutcome, LearnUpdateStatus, LearningError, LearningPolicy,
     ObservationId, PredictionEval, TabularTransitionLearner, TransitionObservation,
     TransitionSample,
 };
+pub use learning_progress::{
+    DriveModality, DriveSignal, LearningProgressConfig, LearningProgressError,
+    LearningProgressReader, RegionReading, signal_drive_spec,
+};
 pub use memory::{
     AgentMemoryScope, BoundedEpisodicMemory, EpisodeId, EpisodeInput, EpisodeProvenance,
     EpisodicRecord, MEMORY_SCHEMA_VERSION, MemoryError, MemoryOperation, MemoryPort,
     MemorySnapshot, OwnerId, RawTextPolicy, RetentionPolicy, SummaryCode,
+};
+pub use memory_views::{
+    AmbientSurface, AugmentedState, MEMORY_SUMMARY_DIM, MemoryViewError, PrivateMemoryView,
+    SurfaceAccess, SurfaceCell, SurfaceGrant, SurfaceId, SurfaceLimits, SurfaceProvenance,
+    SurfaceWrite, physical_state_hash, records_digest,
+};
+pub use microstate::{
+    BELIEF_COLLAPSE_TOLERANCE, Cell, MAX_DISCRETE_CARDINALITY, MAX_MICROSTATE_NAME_BYTES,
+    MAX_MICROSTATE_VARIABLES, Microstate, MicrostateError, MicrostateVariable, MicrostateView,
+    Truth, VariableKind,
 };
 pub use model::{DeterministicRng, GenerativeModel, PlanningContext, RngSource};
 pub use motivation::{
@@ -166,6 +227,10 @@ pub use planner::{
     BudgetTracker, CancelToken, PlanBudget, PlanRequest, PlanResult, PlanStatus, PlanTarget,
     Planner,
 };
+pub use posterior_sampling::{
+    PosteriorTable, SampledTableModel, TableKind, mix_seed, posterior_mean_table, sample_dirichlet,
+    sample_ln_gamma, sample_posterior_table,
+};
 pub use procedural_memory::{
     EvaluationCriteria, EvaluationEvidence, PROCEDURAL_MEMORY_SCHEMA_VERSION, ProceduralError,
     ProceduralMemory, PromotionAuditEvent, PromotionDecision, PromotionGate, PromotionGateVerdict,
@@ -173,15 +238,17 @@ pub use procedural_memory::{
     TabularPolicy,
 };
 pub use provenance::{
-    Confidence, EvidenceRef, FrameId, IngressStatus, IngressWindow, MessageId, ObservationEnvelope,
-    ObservationKind, ObservationRecord, ProvenanceError, ProvenanceMetadata, ProvenanceTracker,
-    SensorId, SensorWatermark, UnitTag,
+    Confidence, EndowmentProvenance, EvidenceRef, FrameId, IngressStatus, IngressWindow, MessageId,
+    ObservationEnvelope, ObservationKind, ObservationRecord, ProvenanceError, ProvenanceMetadata,
+    ProvenanceTracker, SensorId, SensorWatermark, UnitTag,
 };
+pub use scale::{CanonicalScale, Scale, ScaleError, ScaleIdentity};
 pub use scheduler::{
     EventKind, LifecycleTracker, LocalScheduler, ScheduleTrigger, ScheduledTask, SchedulerConfig,
     SchedulerError, SchedulerEvent, SchedulerLifecycle, StepReport, TaskContext,
     TaskExecutionRecord, TaskHandler, TrackedResource,
 };
+pub use selection_principle::SelectionPrinciple;
 pub use semantic_memory::{
     EntityKind, EpistemicStatus, EvidenceEntry, EvidenceInput, EvidencePolarity,
     GroundingCandidate, GroundingFilter, PredicateId, PropositionKey, PropositionRecord,

@@ -25,6 +25,7 @@ use crate::fmc_scoring::{
 use crate::fmc_walkers::{PopulationError, WalkerPopulation};
 use crate::model::{GenerativeModel, PlanningContext, RngSource};
 use crate::planner::{PlanRequest, PlanResult, PlanStatus, Planner};
+use crate::scale::ScaleIdentity;
 use crate::units::StepDt;
 
 /// Errores de configuración del planificador FMC recedente.
@@ -217,7 +218,45 @@ pub struct FmcRootActionStat {
     pub score: f64,
 }
 
+/// Viability of the walkers descending from one root action at one planner step (GOG-181).
+///
+/// Viable means "not in a failure terminal" (the same predicate as the scoring masks).
+#[derive(Debug, Clone, PartialEq)]
+pub struct FmcRootViability {
+    /// Root action `a_0`.
+    pub action: Action,
+    /// Walkers whose first action is `action` at the time of the snapshot.
+    pub walkers: usize,
+    /// Of those, the number that are viable.
+    pub viable: usize,
+}
+
+impl FmcRootViability {
+    /// Viable fraction `viable / walkers` (`0.0` when there are no walkers).
+    pub fn fraction(&self) -> f64 {
+        if self.walkers == 0 {
+            0.0
+        } else {
+            self.viable as f64 / self.walkers as f64
+        }
+    }
+}
+
+/// Per-root-action viability measured at one planner step **before** the cloning of that step.
+#[derive(Debug, Clone, PartialEq)]
+pub struct FmcStepRootViability {
+    /// Planner step index (`0` is the first simulated step).
+    pub step: usize,
+    /// One entry per distinct root action, in first-appearance order.
+    pub roots: Vec<FmcRootViability>,
+}
+
 /// Resumen estructurado y observable de una invocación de [`FmcPlanner`].
+///
+/// Desde GOG-200 puede registrar la identidad de la [`crate::Scale`] usada por el modelo
+/// ([`FmcTraceSummary::scale_identity`]), de modo que cada decisión queda atribuida a un
+/// identificador, versión y hash de discretización estables. El campo es opcional: las trazas
+/// construidas sin escala conservan exactamente su contenido previo.
 #[derive(Debug, Clone, PartialEq)]
 pub struct FmcTraceSummary {
     first_action: Option<Action>,
@@ -230,6 +269,9 @@ pub struct FmcTraceSummary {
     selected_support: usize,
     selected_score: Option<f64>,
     root_action_stats: Vec<FmcRootActionStat>,
+    pre_clone_viability: Vec<FmcStepRootViability>,
+    final_walkers: Option<Vec<(Option<Action>, State)>>,
+    scale_identity: Option<ScaleIdentity>,
 }
 
 impl FmcTraceSummary {
@@ -254,7 +296,55 @@ impl FmcTraceSummary {
             selected_support: 0,
             selected_score: None,
             root_action_stats: Vec::new(),
+            pre_clone_viability: Vec::new(),
+            final_walkers: None,
+            scale_identity: None,
         }
+    }
+
+    /// Registra la identidad de la [`crate::Scale`] sobre la que se proyectó la decisión
+    /// (GOG-200): identificador, versión y hash canónico.
+    ///
+    /// La identidad solo puede obtenerse de una escala ([`crate::Scale::identity`]), así que la
+    /// traza no admite identificadores fabricados con parámetros sueltos.
+    #[must_use]
+    pub fn with_scale_identity(mut self, identity: ScaleIdentity) -> Self {
+        self.scale_identity = Some(identity);
+        self
+    }
+
+    /// Identidad de la escala registrada en la decisión, si el planificador recibió una.
+    pub fn scale_identity(&self) -> Option<&ScaleIdentity> {
+        self.scale_identity.as_ref()
+    }
+
+    /// Attaches the per-step, pre-cloning viability of each root action (GOG-181).
+    pub fn with_pre_clone_viability(mut self, viability: Vec<FmcStepRootViability>) -> Self {
+        self.pre_clone_viability = viability;
+        self
+    }
+
+    /// Attaches the final `(first action, state)` of every walker (opt-in capture, GOG-181).
+    pub fn with_final_walkers(mut self, walkers: Option<Vec<(Option<Action>, State)>>) -> Self {
+        self.final_walkers = walkers;
+        self
+    }
+
+    /// Viable fraction per root action at every planner step, measured before that step's
+    /// cloning (empty when the plan ended before the first scoring).
+    pub fn pre_clone_viability(&self) -> &[FmcStepRootViability] {
+        &self.pre_clone_viability
+    }
+
+    /// Viability of the decision: the last pre-cloning snapshot, if any.
+    pub fn decision_viability(&self) -> Option<&FmcStepRootViability> {
+        self.pre_clone_viability.last()
+    }
+
+    /// Final `(first action, state)` of every walker, only if the planner was built with
+    /// [`FmcPlanner::with_walker_capture`].
+    pub fn final_walkers(&self) -> Option<&[(Option<Action>, State)]> {
+        self.final_walkers.as_deref()
     }
 
     /// Adjunta las métricas de selección de acción raíz (soporte y score de la ganadora y
@@ -327,6 +417,7 @@ impl FmcTraceSummary {
 pub struct FmcPlanner {
     config: FmcPlannerConfig,
     last_trace: Option<FmcTraceSummary>,
+    capture_walkers: bool,
 }
 
 impl FmcPlanner {
@@ -335,7 +426,16 @@ impl FmcPlanner {
         Self {
             config,
             last_trace: None,
+            capture_walkers: false,
         }
+    }
+
+    /// Opt-in: also export the final `(first action, state)` of every walker in the trace
+    /// (needed to estimate control bits per decision). Off by default; never changes planning.
+    #[must_use]
+    pub const fn with_walker_capture(mut self, capture: bool) -> Self {
+        self.capture_walkers = capture;
+        self
     }
 
     /// Devuelve la configuración del planificador.
@@ -423,6 +523,7 @@ impl FmcPlanner {
         let mut budget_exhausted = false;
         let mut any_step_completed = false;
         let mut last_vr: Option<Vec<f64>> = None;
+        let mut pre_clone_viability: Vec<FmcStepRootViability> = Vec::new();
 
         for step_idx in 0..self.config.horizon {
             if request.is_cancelled() {
@@ -517,6 +618,11 @@ impl FmcPlanner {
             })?;
             last_mean_vr = mean_slice(score.virtual_rewards());
             last_vr = Some(score.virtual_rewards().to_vec());
+            // Read-only snapshot taken before this step's cloning (GOG-181).
+            pre_clone_viability.push(FmcStepRootViability {
+                step: step_idx,
+                roots: root_viability(&population),
+            });
 
             if budget_exhausted {
                 break;
@@ -574,11 +680,16 @@ impl FmcPlanner {
                     diversity,
                     PlanStatus::Completed,
                 )
-                .with_selection(
-                    selection.support_count,
-                    selection.score,
-                    selection.stats,
-                );
+                .with_selection(selection.support_count, selection.score, selection.stats)
+                .with_pre_clone_viability(pre_clone_viability)
+                .with_final_walkers(self.capture_walkers.then(|| {
+                    population
+                        .first_actions()
+                        .iter()
+                        .cloned()
+                        .zip(population.states().iter().cloned())
+                        .collect()
+                }));
                 Ok((result, trace))
             }
             None => {
@@ -608,6 +719,27 @@ impl Planner for FmcPlanner {
         self.last_trace = Some(trace);
         Ok(result)
     }
+}
+
+/// Viable/total walkers per distinct root action (first-appearance order). Read-only.
+fn root_viability(population: &WalkerPopulation) -> Vec<FmcRootViability> {
+    let mut out: Vec<FmcRootViability> = Vec::new();
+    for (i, first) in population.first_actions().iter().enumerate() {
+        let Some(action) = first else { continue };
+        let viable = !is_failure_terminal(population.terminals()[i]);
+        match out.iter_mut().find(|r| &r.action == action) {
+            Some(r) => {
+                r.walkers += 1;
+                r.viable += usize::from(viable);
+            }
+            None => out.push(FmcRootViability {
+                action: action.clone(),
+                walkers: 1,
+                viable: usize::from(viable),
+            }),
+        }
+    }
+    out
 }
 
 /// Default projection as a borrowed slice (usable with `score_population_in_place`).
