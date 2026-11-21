@@ -1,0 +1,16 @@
+[package]
+name = "gogamen-lab-ros2"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "ROS 2 sim/HIL contract (typed topics, QoS, deadlines) plus a robot-side watchdog controller and a deterministic pure-Rust bridge emulator. SIMULATION ONLY; no ROS dependency, no hardware."
+
+[features]
+default = []
+
+# No dependencies on purpose: no ROS client library, no gogamen-core/cli, no hardware drivers.
+[dependencies]
+
+[[example]]
+name = "contract_json"
+path = "examples/contract_json.rs"

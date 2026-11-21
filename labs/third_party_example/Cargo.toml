@@ -1,0 +1,13 @@
+[package]
+name = "gogamen-example-third-party"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Example third-party lab (GOG-103): registers a lab and a 2D projection through public APIs only."
+publish = false
+
+[dependencies]
+gogamen-core = { path = "../../crates/gogamen-core" }
+gogamen-projection = { path = "../../crates/gogamen-projection" }
+gogamen-sdk = { path = "../../crates/gogamen-sdk" }
+gogamen-studio = { path = "../../crates/gogamen-studio" }
