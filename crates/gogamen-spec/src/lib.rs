@@ -34,7 +34,10 @@ pub use epistemic::{
 };
 pub use error::{SpecDiagnostic, SpecError, SpecMigrationError, UnknownFieldPolicy};
 pub use expr::{EXPR_AST_MAX_DEPTH, ExprAst, ExprType, ExprUnit};
-pub use json::{JsonNumber, JsonValue, parse_json, write_canonical_f64, write_json_string};
+pub use json::{
+    DEFAULT_JSON_MAX_BYTES, DEFAULT_JSON_MAX_ELEMENTS, DEFAULT_JSON_MAX_STRING_BYTES, JsonLimits,
+    JsonNumber, JsonValue, parse_json, parse_with_limits, write_canonical_f64, write_json_string,
+};
 pub use model::{
     AGENT_SPEC_SCHEMA_VERSION, AgentSpec, EXPERIMENT_SPEC_SCHEMA_VERSION, ExperimentSpec,
     SYSTEM_SPEC_SCHEMA_VERSION, SpecConfigMap, SpecConfigValue, SystemConnectionSpec,

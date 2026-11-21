@@ -30,9 +30,53 @@ pub enum JsonValue {
     Object(BTreeMap<String, JsonValue>),
 }
 
-/// Parsea un documento JSON estricto.
+/// Límite por defecto de bytes totales de un documento JSON (16 MiB).
+pub const DEFAULT_JSON_MAX_BYTES: usize = 16 * 1024 * 1024;
+/// Límite por defecto de valores JSON (incluye raíz, elementos de arrays y valores de objetos).
+pub const DEFAULT_JSON_MAX_ELEMENTS: usize = 1_000_000;
+/// Límite por defecto de longitud (bytes UTF-8 decodificados) de un string o clave (1 MiB).
+pub const DEFAULT_JSON_MAX_STRING_BYTES: usize = 1024 * 1024;
+
+/// Límites de recursos configurables para [`parse_with_limits`].
+///
+/// La profundidad sigue fija (64). Los defaults son prudentes y holgados para specs reales.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct JsonLimits {
+    /// Bytes totales máximos del documento.
+    pub max_bytes: usize,
+    /// Número máximo de valores JSON parseados.
+    pub max_elements: usize,
+    /// Longitud máxima en bytes de cada string (claves incluidas), ya decodificado.
+    pub max_string_bytes: usize,
+}
+
+impl Default for JsonLimits {
+    fn default() -> Self {
+        Self {
+            max_bytes: DEFAULT_JSON_MAX_BYTES,
+            max_elements: DEFAULT_JSON_MAX_ELEMENTS,
+            max_string_bytes: DEFAULT_JSON_MAX_STRING_BYTES,
+        }
+    }
+}
+
+/// Parsea un documento JSON estricto con los [`JsonLimits`] por defecto.
 pub fn parse_json(input: &str) -> Result<JsonValue, SpecError> {
-    let mut parser = JsonParser::new(input);
+    parse_with_limits(input, JsonLimits::default())
+}
+
+/// Parsea un documento JSON estricto aplicando límites explícitos de bytes, elementos y strings.
+pub fn parse_with_limits(input: &str, limits: JsonLimits) -> Result<JsonValue, SpecError> {
+    if input.len() > limits.max_bytes {
+        return Err(SpecError::JsonSyntax {
+            offset: 0,
+            message: format!(
+                "JSON input exceeds maximum size of {} bytes",
+                limits.max_bytes
+            ),
+        });
+    }
+    let mut parser = JsonParser::new(input, limits);
     let value = parser.parse_value(0)?;
     parser.skip_ws();
     if parser.pos != parser.bytes.len() {
@@ -85,14 +129,18 @@ struct JsonParser<'a> {
     src: &'a str,
     bytes: &'a [u8],
     pos: usize,
+    limits: JsonLimits,
+    elements: usize,
 }
 
 impl<'a> JsonParser<'a> {
-    fn new(src: &'a str) -> Self {
+    fn new(src: &'a str, limits: JsonLimits) -> Self {
         Self {
             src,
             bytes: src.as_bytes(),
             pos: 0,
+            limits,
+            elements: 0,
         }
     }
 
@@ -131,6 +179,13 @@ impl<'a> JsonParser<'a> {
         let Some(b) = self.peek() else {
             return Err(self.err("unexpected end of input"));
         };
+        self.elements += 1;
+        if self.elements > self.limits.max_elements {
+            return Err(self.err(format!(
+                "JSON value count exceeds maximum of {}",
+                self.limits.max_elements
+            )));
+        }
         match b {
             b'n' => self.parse_null(),
             b't' | b'f' => self.parse_bool(),
@@ -217,6 +272,12 @@ impl<'a> JsonParser<'a> {
         self.pos += 1; // opening '"'
         let mut out = String::new();
         while let Some(b) = self.peek() {
+            if out.len() > self.limits.max_string_bytes {
+                return Err(self.err(format!(
+                    "JSON string exceeds maximum of {} bytes",
+                    self.limits.max_string_bytes
+                )));
+            }
             match b {
                 b'"' => {
                     self.pos += 1;
@@ -284,9 +345,21 @@ impl<'a> JsonParser<'a> {
         if self.pos + 4 > self.bytes.len() {
             return Err(self.err("incomplete \\uXXXX escape"));
         }
-        let hex = &self.src[self.pos..self.pos + 4];
+        let mut value: u16 = 0;
+        for i in 0..4 {
+            let digit = match self.bytes[self.pos + i] {
+                b @ b'0'..=b'9' => b - b'0',
+                b @ b'a'..=b'f' => b - b'a' + 10,
+                b @ b'A'..=b'F' => b - b'A' + 10,
+                _ => {
+                    self.pos += 4;
+                    return Err(self.err("invalid hex in \\uXXXX escape"));
+                }
+            };
+            value = (value << 4) | u16::from(digit);
+        }
         self.pos += 4;
-        u16::from_str_radix(hex, 16).map_err(|_| self.err("invalid hex in \\uXXXX escape"))
+        Ok(value)
     }
 
     fn parse_number(&mut self) -> Result<JsonNumber, SpecError> {
@@ -362,5 +435,57 @@ impl<'a> JsonParser<'a> {
             }
             Ok(JsonNumber::F64(v))
         }
+    }
+}
+
+#[cfg(test)]
+mod limit_tests {
+    use super::*;
+
+    fn small(max_bytes: usize, max_elements: usize, max_string_bytes: usize) -> JsonLimits {
+        JsonLimits {
+            max_bytes,
+            max_elements,
+            max_string_bytes,
+        }
+    }
+
+    #[test]
+    fn gog_138_default_api_matches_explicit_defaults() {
+        let doc = r#"{"a":[1,2,{"b":"x"}],"c":null}"#;
+        assert_eq!(
+            parse_json(doc).unwrap(),
+            parse_with_limits(doc, JsonLimits::default()).unwrap()
+        );
+    }
+
+    #[test]
+    fn gog_138_rejects_oversized_bytes_before_parsing() {
+        let err = parse_with_limits("[1,2,3,4]", small(5, 100, 100)).unwrap_err();
+        assert!(err.to_string().contains("maximum size"), "{err}");
+        assert!(parse_with_limits("[1,2]", small(5, 100, 100)).is_ok());
+    }
+
+    #[test]
+    fn gog_138_rejects_too_many_elements() {
+        let doc = format!("[{}]", vec!["0"; 50].join(","));
+        let err = parse_with_limits(&doc, small(10_000, 10, 100)).unwrap_err();
+        assert!(err.to_string().contains("value count"), "{err}");
+        // raíz + 50 elementos = 51 valores
+        assert!(parse_with_limits(&doc, small(10_000, 51, 100)).is_ok());
+    }
+
+    #[test]
+    fn gog_138_rejects_long_strings_and_keys() {
+        let long = "a".repeat(64);
+        let s = format!("\"{long}\"");
+        assert!(parse_with_limits(&s, small(1000, 10, 63)).is_err());
+        assert!(parse_with_limits(&s, small(1000, 10, 64)).is_ok());
+        let k = format!("{{\"{long}\":1}}");
+        assert!(parse_with_limits(&k, small(1000, 10, 63)).is_err());
+        // escapes decodificados cuentan por su longitud final
+        let esc = format!("\"{}\"", "\\n".repeat(40));
+        assert!(parse_with_limits(&esc, small(1000, 10, 39)).is_err());
+        assert!(parse_with_limits(&esc, small(1000, 10, 40)).is_ok());
     }
 }
