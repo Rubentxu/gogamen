@@ -1,0 +1,45 @@
+[package]
+name = "gogamen-lab-mujoco"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Continuous physics engine port (qpos/qvel/ctrl + full integration-state snapshot/restore) with a pure-Rust reference solver and an optional MuJoCo Python sidecar."
+
+[features]
+default = []
+# Compiles the MuJoCo sidecar client (spawns `python3` with the `mujoco` module at runtime).
+# No extra crates are pulled in; the feature only gates the process-spawning code.
+mujoco-sidecar = []
+
+[dependencies]
+# Reuses the independent action guard (GOG-7) and plan budget (GOG-6); core never depends on this lab.
+gogamen-core = { path = "../../crates/gogamen-core" }
+
+[[example]]
+name = "compare_control"
+path = "examples/compare_control.rs"
+
+[[example]]
+name = "nav_scenarios"
+path = "examples/nav_scenarios.rs"
+
+[[example]]
+name = "fault_injection"
+path = "examples/fault_injection.rs"
+
+[[example]]
+name = "dialog_eval"
+path = "examples/dialog_eval.rs"
+
+[[test]]
+name = "dialog"
+path = "tests/dialog.rs"
+
+[[test]]
+name = "fault_injection"
+path = "tests/fault_injection.rs"
+
+[[test]]
+name = "sidecar_mujoco"
+path = "tests/sidecar_mujoco.rs"
+required-features = ["mujoco-sidecar"]

@@ -1,0 +1,9 @@
+[package]
+name = "gogamen-lab-retro"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "GOG-60 spike: libretro-shaped emulation port plus an embedded deterministic free-play core"
+
+[dependencies]
+gogamen-core = { path = "../../crates/gogamen-core" }
