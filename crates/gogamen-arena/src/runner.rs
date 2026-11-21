@@ -65,6 +65,20 @@ pub enum ArenaError {
     Domain(DomainError),
     /// Error de traza científica durable.
     Trace(String),
+    /// Un rol con planificación no respeta el presupuesto de transiciones por decisión compartido.
+    UnequalBudget {
+        /// Rol afectado.
+        role: &'static str,
+        /// Transiciones por decisión exigidas por el presupuesto compartido.
+        expected: usize,
+        /// Transiciones por decisión configuradas para el rol.
+        actual: usize,
+    },
+    /// Conjunto de roles Kart inválido (duplicados, ausentes o mal configurados).
+    InvalidRoles {
+        /// Descripción del problema.
+        reason: &'static str,
+    },
 }
 
 impl fmt::Display for ArenaError {
@@ -90,6 +104,15 @@ impl fmt::Display for ArenaError {
             ),
             Self::Domain(err) => write!(f, "domain error: {err}"),
             Self::Trace(msg) => write!(f, "scientific trace error: {msg}"),
+            Self::UnequalBudget {
+                role,
+                expected,
+                actual,
+            } => write!(
+                f,
+                "role '{role}' uses {actual} transitions/decision but the shared budget is {expected}"
+            ),
+            Self::InvalidRoles { reason } => write!(f, "invalid kart arena roles: {reason}"),
         }
     }
 }
@@ -630,6 +653,15 @@ impl ArenaComparisonReport {
 pub fn run_arena_comparison(
     config: &ArenaComparisonConfig,
 ) -> Result<ArenaComparisonReport, ArenaError> {
+    run_arena_comparison_preregistered(config, None)
+}
+
+/// Same as [`run_arena_comparison`], stamping the pre-registered hypotheses hash
+/// (`gogamen_spec::hypotheses_hash`) into every run's trace manifest before execution.
+pub fn run_arena_comparison_preregistered(
+    config: &ArenaComparisonConfig,
+    hypotheses_hash: Option<u64>,
+) -> Result<ArenaComparisonReport, ArenaError> {
     config.validate()?;
 
     let mut paired_outcomes = Vec::new();
@@ -645,6 +677,7 @@ pub fn run_arena_comparison(
             split,
             seed,
             left_run_id,
+            hypotheses_hash,
         )?;
         let right = execute_single_run(
             &config.spec_id,
@@ -654,6 +687,7 @@ pub fn run_arena_comparison(
             split,
             seed,
             right_run_id,
+            hypotheses_hash,
         )?;
 
         let outcome_winner = determine_paired_winner(&left, &right);
@@ -758,20 +792,22 @@ fn determine_paired_winner(left: &PlannerRunResult, right: &PlannerRunResult) ->
     }
 }
 
-struct TraceRecorder {
+pub(crate) struct TraceRecorder {
     sink: BufferedTraceSink,
     backend: InMemoryTraceBackend,
     next_revision: u64,
 }
 
 impl TraceRecorder {
-    fn new(
+    pub(crate) fn new_preregistered(
         run_id: RunId,
         spec_id: &str,
         model_id: &str,
         seed: MasterSeed,
+        hypotheses_hash: Option<u64>,
     ) -> Result<Self, ArenaError> {
-        let cfg = TraceManifestConfig::new(run_id, spec_id, model_id, seed);
+        let cfg = TraceManifestConfig::new(run_id, spec_id, model_id, seed)
+            .with_hypotheses_hash(hypotheses_hash);
         let sink = BufferedTraceSink::new(
             cfg,
             TraceQuota::default(),
@@ -785,7 +821,7 @@ impl TraceRecorder {
         })
     }
 
-    fn record_step(
+    pub(crate) fn record_step(
         &mut self,
         tick: Tick,
         observation: gogamen_core::Observation,
@@ -813,6 +849,8 @@ impl TraceRecorder {
             },
             stream_seeds,
             checkpoint: None,
+            control_bits: None,
+            selection_measurement: None,
         };
         self.sink.record(&record)?;
         if self.sink.queued_records() >= 256 {
@@ -821,7 +859,9 @@ impl TraceRecorder {
         Ok(())
     }
 
-    fn finalize(mut self) -> Result<(TraceManifest, ScientificTraceArchive), ArenaError> {
+    pub(crate) fn finalize(
+        mut self,
+    ) -> Result<(TraceManifest, ScientificTraceArchive), ArenaError> {
         let manifest = self.sink.finalize(&mut self.backend)?;
         let decoded_manifest = self
             .backend
@@ -836,6 +876,7 @@ impl TraceRecorder {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn execute_single_run(
     spec_id: &str,
     scenario: &ArenaScenario,
@@ -844,9 +885,11 @@ fn execute_single_run(
     split: SeedSplit,
     seed: MasterSeed,
     run_id: RunId,
+    hypotheses_hash: Option<u64>,
 ) -> Result<PlannerRunResult, ArenaError> {
     let model_id = format!("{}/{}", scenario.label(), planner.id());
-    let mut recorder = TraceRecorder::new(run_id, spec_id, &model_id, seed)?;
+    let mut recorder =
+        TraceRecorder::new_preregistered(run_id, spec_id, &model_id, seed, hypotheses_hash)?;
     let started = Instant::now();
 
     let (status, steps_executed, transitions_evaluated, total_reward) = match scenario {

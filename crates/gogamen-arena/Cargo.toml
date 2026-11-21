@@ -8,5 +8,7 @@ license.workspace = true
 gogamen-core = { path = "../gogamen-core" }
 gogamen-lab-cartpole = { path = "../../labs/cartpole" }
 gogamen-lab-grid = { path = "../../labs/grid" }
+gogamen-lab-racing = { path = "../../labs/racing" }
 gogamen-projection = { path = "../gogamen-projection" }
 gogamen-runtime = { path = "../gogamen-runtime" }
+gogamen-spec = { path = "../gogamen-spec" }

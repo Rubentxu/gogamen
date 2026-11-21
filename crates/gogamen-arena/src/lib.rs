@@ -8,14 +8,38 @@
 //!   consumo de presupuesto y dispersión estadística ([`DispersionStats`]).
 //! - Fallos, timeouts y agotamientos de presupuesto ([`RunOutcomeStatus`]) contabilizados
 //!   explícitamente con denominador total intacto.
+//! - Módulo [`kart`]: comparación pareada Kart con cuatro roles separados (controlador puro sin
+//!   recompensa, FMC orientado a objetivo, aleatorio, baseline geométrico) bajo la misma
+//!   observación, física y presupuesto de transiciones; un techo FMC privilegiado se reporta
+//!   aparte y nunca entra en la comparación justa.
 //! - Trazas científicas verificadas compatibles con `gogamen_runtime::scientific_trace`
 //!   (`ScientificTraceArchive`, `TraceManifest`, `ScientificRecord`).
 
+pub mod emergence;
+pub mod grid_arms;
+pub mod hypothesis;
+pub mod kart;
 pub mod profiling;
 pub mod runner;
 pub mod stats;
+pub mod sweep;
 
 pub use gogamen_lab_grid::{ObservationMode, SeedSplit};
+pub use grid_arms::{
+    CandidateRollout, CausalDecision, ClosedLoopDecision, GOG_203_ARMS, GRID_CAUSAL_RULE_ARM,
+    GRID_EMPOWERMENT_ARM, GRID_ENTROPIC_PURE_ARM, GridCausalAgent, GridClosedLoopError,
+    RolloutConfig, empowerment_decision, entropic_pure_decision, run_causal_grid_episode,
+    run_empowerment_episode, run_entropic_pure_grid_episode,
+};
+pub use hypothesis::{
+    BuildStatus, HypothesisEvidence, HypothesisVerdict, VerdictBasis, VerdictCounts, VerdictEntry,
+    count_verdicts, evaluate_hypotheses, planner_metrics, render_verdict_table,
+    trace_ref_for_manifest,
+};
+pub use kart::{
+    KartArenaBudget, KartArenaConfig, KartArenaReport, KartRole, KartRoleSpec, KartRoleSummary,
+    KartRunResult, KartSeedOutcome, run_kart_arena, run_kart_arena_preregistered,
+};
 pub use profiling::{
     BeforeAfterProfileComparison, BottleneckStage, ComparisonOutcome, Decision, ExecutionPolicy,
     NO_GPU_OR_PARALLELISM_WITHOUT_EVIDENCE_NOTICE, OptimizationAcceptancePolicy, ProfileReport,
@@ -25,7 +49,7 @@ pub use profiling::{
 pub use runner::{
     ArenaBudget, ArenaComparisonConfig, ArenaComparisonReport, ArenaError, ArenaPlanner,
     ArenaScenario, ArenaSeedSet, CartPoleArenaConfig, GridArenaConfig, PairedSeedOutcome,
-    PlannerRunResult, run_arena_comparison,
+    PlannerRunResult, run_arena_comparison, run_arena_comparison_preregistered,
 };
 pub use stats::{
     DispersionStats, PairedComparisonSummary, PairedWinner, PlannerSummary, RunOutcomeStatus,
