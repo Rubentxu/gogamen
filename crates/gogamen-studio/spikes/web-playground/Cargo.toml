@@ -1,0 +1,25 @@
+# GOG-109 spike. Standalone: NOT a workspace member (empty [workspace] detaches it).
+[package]
+name = "gogamen-web-spike"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[[bin]]
+name = "native_baseline"
+path = "src/bin/native_baseline.rs"
+
+[dependencies]
+gogamen-studio = { path = "../.." }
+gogamen-lab-grid = { path = "../../../../labs/grid" }
+gogamen-projection = { path = "../../../gogamen-projection" }
+
+[profile.release]
+opt-level = "s"
+lto = true
+panic = "abort"
+
+[workspace]

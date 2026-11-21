@@ -1,0 +1,18 @@
+wasm_bytes 119924 imports []
+compile_ms=0.92 instantiate_ms=6.00
+wasm_memory_initial_bytes 1114112
+json_bytes 17619 wasm_json_equals_native_fixture true
+layers environment:63,decisions:1,labels:41 nodes 105
+draw_data_bytes 1272 (rects 63 circles 1 labels 41)
+wasm_svg_bytes 8257 wasm_svg_equals_native_svg true
+js_svg_bytes 6831 (written fixture/grid_js.svg)
+wasm scene+json (no copy out): median_us=85.6 min_us=78.3 max_us=4218.0 n=500
+wasm scene+json + copy-out decode: median_us=86.5 min_us=82.8 max_us=264.7 n=500
+JSON.parse only: median_us=141.9 min_us=136.9 max_us=1323.1 n=500
+JSON.parse + toDrawData: median_us=190.4 min_us=149.0 max_us=1327.5 n=500
+end-to-end wasm->decode->parse->drawdata: median_us=272.3 min_us=222.2 max_us=1606.5 n=500
+wasm scene+native-SVG (no copy out): median_us=155.4 min_us=134.5 max_us=351.0 n=500
+JS jsSvg from parsed scene: median_us=68.2 min_us=52.8 max_us=658.1 n=500
+copies=1102 copied_bytes=19406776 (copies counted in this run: reads of wasm out buffer via TextDecoder)
+wasm_memory_final_bytes 1245184
+node_rss_MB 61.5 heapUsed_MB 6.8

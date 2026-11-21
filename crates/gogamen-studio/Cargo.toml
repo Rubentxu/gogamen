@@ -1,0 +1,52 @@
+[package]
+name = "gogamen-studio"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Gogamen Studio shell: lab selector, 2D camera and deterministic software viewport (std-only; real-window eframe/egui backend behind the optional `window` feature)."
+
+[dependencies]
+gogamen-core = { path = "../gogamen-core" }
+gogamen-arena = { path = "../gogamen-arena" }
+gogamen-projection = { path = "../gogamen-projection" }
+gogamen-sdk = { path = "../gogamen-sdk" }
+gogamen-spec = { path = "../gogamen-spec" }
+gogamen-lab-grid = { path = "../../labs/grid" }
+gogamen-lab-racing = { path = "../../labs/racing" }
+gogamen-lab-life = { path = "../../labs/life" }
+gogamen-lab-cartpole = { path = "../../labs/cartpole" }
+gogamen-lab-retro = { path = "../../labs/retro" }
+gogamen-lab-automation = { path = "../../labs/automation" }
+# GOG-105: physical truth of the 3D robot view (labs/mujoco depends only on gogamen-core).
+gogamen-lab-mujoco = { path = "../../labs/mujoco" }
+
+# Real-window backend (AC1 of GOG-89). Optional and OFF by default: the default build stays std-only.
+# Spike result: bevy 0.20.1 + bevy_egui 0.43.1 (egui 0.36) is the Backlog-preferred pair; the
+# fallback eframe/egui 0.37 (glow, no wgpu) was chosen. See README "Dependency spike".
+eframe = { version = "=0.37.0", optional = true, default-features = false, features = ["glow", "default_fonts", "wayland", "x11"] }
+
+[features]
+default = []
+window = ["dep:eframe"]
+
+[[example]]
+name = "studio_window"
+required-features = ["window"]
+
+[[test]]
+name = "window_real"
+required-features = ["window"]
+harness = false
+
+[[example]]
+name = "studio_tour"
+required-features = ["window"]
+
+[[test]]
+name = "tour_real"
+required-features = ["window"]
+harness = false
+
+[[example]]
+name = "robot3d_window"
+required-features = ["window"]
