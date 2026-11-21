@@ -186,7 +186,7 @@ internal object CanonicalJson {
         out.append('}')
     }
 
-    private fun writeExpr(out: StringBuilder, node: ExprAst, depth: Int) {
+    internal fun writeExpr(out: StringBuilder, node: ExprAst, depth: Int) {
         require(depth <= EXPR_AST_MAX_DEPTH) {
             "ExprAst depth $depth exceeds maximum $EXPR_AST_MAX_DEPTH"
         }
@@ -244,7 +244,7 @@ internal object CanonicalJson {
         out.append('}')
     }
 
-    private fun writeSystemSpec(out: StringBuilder, spec: SystemSpec) {
+    internal fun writeSystemSpec(out: StringBuilder, spec: SystemSpec) {
         out.append('{')
         out.append("\"config\":")
         writeConfigMap(out, spec.config)
@@ -292,7 +292,7 @@ internal object CanonicalJson {
         out.append('}')
     }
 
-    private fun writePortType(out: StringBuilder, portType: PortType) {
+    internal fun writePortType(out: StringBuilder, portType: PortType) {
         when (portType) {
             PortType.Bool -> writeJsonString(out, "bool")
             PortType.I64 -> writeJsonString(out, "i64")
@@ -322,7 +322,7 @@ internal object CanonicalJson {
         out.append('}')
     }
 
-    private fun writeConfigMap(out: StringBuilder, config: SortedMap<String, SpecConfigValue>) {
+    internal fun writeConfigMap(out: StringBuilder, config: SortedMap<String, SpecConfigValue>) {
         out.append('{')
         var first = true
         for ((key, value) in config.entries.sortedWith { x, y -> codePointOrder.compare(x.key, y.key) }) {
@@ -340,7 +340,7 @@ internal object CanonicalJson {
         out.append('}')
     }
 
-    private fun writeJsonString(out: StringBuilder, value: String) {
+    internal fun writeJsonString(out: StringBuilder, value: String) {
         out.append('"')
         for (ch in value) {
             when (ch) {

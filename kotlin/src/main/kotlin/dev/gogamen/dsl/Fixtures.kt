@@ -49,6 +49,34 @@ object Fixtures {
         }
     }
 
+    /** `SystemSpec` of `canonical_grid_cognitive_spec_experiment_fixture` (POMDP grid with memory). */
+    fun gridCognitiveSystem(): SystemSpec = systemSpec("cognitive_grid_pomdp_system") {
+        val fov = PortType.Custom("LocalObservationGrid")
+        val belief = PortType.Custom("BeliefDistribution")
+        node("pomdp_grid_env", "grid_pomdp") {
+            output("local_fov", fov)
+            input("action", PortType.StringType)
+            config {
+                "fov_radius" to 2
+                "partial_observability" to true
+            }
+        }
+        node("belief_updater", "belief_state") {
+            input("local_fov", fov)
+            output("belief_state", belief)
+        }
+        node("cognitive_planner", "active_inference") {
+            input("belief_state", belief)
+            output("action", PortType.StringType)
+        }
+        node("memory_store", "memory") { output("memory", PortType.Custom("MemoryPort")) }
+        connections {
+            instant("pomdp_grid_env", "local_fov", "belief_updater", "local_fov")
+            instant("belief_updater", "belief_state", "cognitive_planner", "belief_state")
+            delayed("cognitive_planner", "action", "pomdp_grid_env", "action", delayTicks = 1)
+        }
+    }
+
     fun canonicalCognitiveAgent(): SystemSpec {
         val energy = scalarVar<Energy>("energy")
         val curiosity = scalarVar<Ratio>("curiosity")
