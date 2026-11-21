@@ -3,12 +3,13 @@
 
 use gogamen_core::{
     Action, ActionGuard, ActionProposal, ActionSpace, CognitiveDecisionEvent, DeterminismMetadata,
-    EffectSeverity, ErrorBranch, EventKind, GuardContext, GuardDecision, IdempotencyKey,
-    MasterSeed, MonotonicClock, MonotonicDeadline, OptionId, ProposedWorkflowAction, QueryId,
-    ResponseStatus, RetryPolicy, SchedulerEvent, StateMachineWorkflow, SystemOneProvider, Terminal,
-    Tick, TimeoutBranch, TraceHasher, TransitionGuard, TypedQuery, WorkflowError, WorkflowId,
-    WorkflowInput, WorkflowSpec, WorkflowStateId, WorkflowStepError, WorkflowStepOutcome,
-    WorkflowStepStatus, WorkflowTransition, WorkflowTrigger,
+    DomainPrecondition, EffectSeverity, ErrorBranch, EventKind, GuardContext, GuardDecision,
+    IdempotencyKey, MasterSeed, MonotonicClock, MonotonicDeadline, OptionId,
+    ProposedWorkflowAction, QueryId, ResponseStatus, RetryPolicy, SchedulerEvent,
+    StateMachineWorkflow, SystemOneProvider, Terminal, Tick, TimeoutBranch, TraceHasher,
+    TransitionGuard, TypedQuery, WorkflowError, WorkflowId, WorkflowInput, WorkflowSpec,
+    WorkflowStateId, WorkflowStepError, WorkflowStepOutcome, WorkflowStepStatus,
+    WorkflowTransition, WorkflowTrigger,
 };
 use gogamen_spec::SystemSpec;
 
@@ -65,9 +66,9 @@ impl FakeServiceActuator {
     }
 
     /// Evalúa `proposal` mediante `guard` y ejecuta la acción fake únicamente si es autorizada.
-    pub fn evaluate_and_execute(
+    pub fn evaluate_and_execute<P: DomainPrecondition>(
         &mut self,
-        guard: &ActionGuard,
+        guard: &ActionGuard<P>,
         proposal: &ActionProposal,
         action_space: &ActionSpace,
         tick: Tick,

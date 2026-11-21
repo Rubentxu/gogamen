@@ -6,10 +6,15 @@
 //! [`gogamen_compiler::SpecCompiler`] sin red ni procesos reales del sistema operativo.
 
 pub mod events;
+pub mod optionality_guard;
 pub mod spec;
 pub mod supervisor;
 
 pub use events::{EventClassification, ServiceThresholds, SyntheticServiceEvent};
+pub use optionality_guard::{
+    OptionalityGuard, OptionalityPolicy, OptionalityRejection, OptionalityVerdict, PolicyError,
+    TransitionGraph, service_recovery_graph, svc,
+};
 pub use spec::{
     AutomationError, RemediationKind, ServiceSupervisorConfig, automation_capability_catalog,
     compile_supervisor_spec,
