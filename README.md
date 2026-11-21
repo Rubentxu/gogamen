@@ -1,3 +1,23 @@
+## Gogamen Workspace — Smoke local y CI
+
+Requisitos: toolchain Rust fijada en [`rust-toolchain.toml`](rust-toolchain.toml) (`1.99.0` con `rustfmt` y `clippy`).
+
+Comando único para verificar formato, lints y tests offline del workspace:
+
+```sh
+cargo fmt --all -- --check && cargo clippy --workspace --all-targets -- -D warnings && cargo test --workspace --offline
+```
+
+Para ejecutar la CLI mínima de verificación:
+
+```sh
+cargo run -p gogamen-cli --offline -- --version
+```
+
+Release MVP pre-1.0 (local, sin publicación automática): ver [`docs/RELEASE.md`](docs/RELEASE.md) y `scripts/release_check.sh`.
+
+---
+
 # Gogamen — Semilla de Backlog.md v3
 
 > **Gogamen** (del euskera *gogamen*: mente, intelecto y facultad cognitiva en acción) es un framework de computación cognitiva, adaptativa y funcional de propósito general para inteligencias situadas.  

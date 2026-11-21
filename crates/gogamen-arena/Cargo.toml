@@ -1,0 +1,12 @@
+[package]
+name = "gogamen-arena"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+gogamen-core = { path = "../gogamen-core" }
+gogamen-lab-cartpole = { path = "../../labs/cartpole" }
+gogamen-lab-grid = { path = "../../labs/grid" }
+gogamen-projection = { path = "../gogamen-projection" }
+gogamen-runtime = { path = "../gogamen-runtime" }

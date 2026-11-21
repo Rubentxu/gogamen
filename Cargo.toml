@@ -1,0 +1,32 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/gogamen-arena",
+    "crates/gogamen-core",
+    "crates/gogamen-compiler",
+    "crates/gogamen-embedded",
+    "crates/gogamen-experimental",
+    "crates/gogamen-jev",
+    "crates/gogamen-projection",
+    "crates/gogamen-runtime",
+    "crates/gogamen-sdk",
+    "crates/gogamen-spec",
+    "crates/gogamen-studio",
+    "crates/gogamen-rerun-export",
+    "crates/gogamen-cli",
+    "labs/automation",
+    "labs/cartpole",
+    "labs/grid",
+    "labs/life",
+    "labs/mario",
+    "labs/mujoco",
+    "labs/ros2",
+    "labs/racing",
+    "labs/retro",
+    "labs/third_party_example",
+]
+
+[workspace.package]
+edition = "2024"
+license = "MIT"
+version = "0.1.0"
