@@ -1,0 +1,601 @@
+{
+ "schema": "gogamen.golden.canonical_json.v1",
+ "cases": [
+  {
+   "name": "f64_zero",
+   "kind": "system_spec",
+   "spec_id": "g",
+   "config": [
+    [
+     "k",
+     "f64",
+     "0.0"
+    ]
+   ],
+   "expected": "{\"config\":{\"k\":0.0},\"connections\":[],\"nodes\":[],\"schema_version\":\"gogamen.system_spec.v0\",\"spec_id\":\"g\"}"
+  },
+  {
+   "name": "f64_neg_zero",
+   "kind": "system_spec",
+   "spec_id": "g",
+   "config": [
+    [
+     "k",
+     "f64",
+     "-0.0"
+    ]
+   ],
+   "expected": "{\"config\":{\"k\":0.0},\"connections\":[],\"nodes\":[],\"schema_version\":\"gogamen.system_spec.v0\",\"spec_id\":\"g\"}"
+  },
+  {
+   "name": "f64_one",
+   "kind": "system_spec",
+   "spec_id": "g",
+   "config": [
+    [
+     "k",
+     "f64",
+     "1.0"
+    ]
+   ],
+   "expected": "{\"config\":{\"k\":1.0},\"connections\":[],\"nodes\":[],\"schema_version\":\"gogamen.system_spec.v0\",\"spec_id\":\"g\"}"
+  },
+  {
+   "name": "f64_tenth",
+   "kind": "system_spec",
+   "spec_id": "g",
+   "config": [
+    [
+     "k",
+     "f64",
+     "0.1"
+    ]
+   ],
+   "expected": "{\"config\":{\"k\":0.1},\"connections\":[],\"nodes\":[],\"schema_version\":\"gogamen.system_spec.v0\",\"spec_id\":\"g\"}"
+  },
+  {
+   "name": "f64_neg_frac",
+   "kind": "system_spec",
+   "spec_id": "g",
+   "config": [
+    [
+     "k",
+     "f64",
+     "-2.5"
+    ]
+   ],
+   "expected": "{\"config\":{\"k\":-2.5},\"connections\":[],\"nodes\":[],\"schema_version\":\"gogamen.system_spec.v0\",\"spec_id\":\"g\"}"
+  },
+  {
+   "name": "f64_hundred",
+   "kind": "system_spec",
+   "spec_id": "g",
+   "config": [
+    [
+     "k",
+     "f64",
+     "100.0"
+    ]
+   ],
+   "expected": "{\"config\":{\"k\":100.0},\"connections\":[],\"nodes\":[],\"schema_version\":\"gogamen.system_spec.v0\",\"spec_id\":\"g\"}"
+  },
+  {
+   "name": "f64_thousandth",
+   "kind": "system_spec",
+   "spec_id": "g",
+   "config": [
+    [
+     "k",
+     "f64",
+     "0.001"
+    ]
+   ],
+   "expected": "{\"config\":{\"k\":0.001},\"connections\":[],\"nodes\":[],\"schema_version\":\"gogamen.system_spec.v0\",\"spec_id\":\"g\"}"
+  },
+  {
+   "name": "f64_1e-4",
+   "kind": "system_spec",
+   "spec_id": "g",
+   "config": [
+    [
+     "k",
+     "f64",
+     "1e-4"
+    ]
+   ],
+   "expected": "{\"config\":{\"k\":0.0001},\"connections\":[],\"nodes\":[],\"schema_version\":\"gogamen.system_spec.v0\",\"spec_id\":\"g\"}"
+  },
+  {
+   "name": "f64_1e-7",
+   "kind": "system_spec",
+   "spec_id": "g",
+   "config": [
+    [
+     "k",
+     "f64",
+     "1e-7"
+    ]
+   ],
+   "expected": "{\"config\":{\"k\":0.0000001},\"connections\":[],\"nodes\":[],\"schema_version\":\"gogamen.system_spec.v0\",\"spec_id\":\"g\"}"
+  },
+  {
+   "name": "f64_1e-10",
+   "kind": "system_spec",
+   "spec_id": "g",
+   "config": [
+    [
+     "k",
+     "f64",
+     "1e-10"
+    ]
+   ],
+   "expected": "{\"config\":{\"k\":0.0000000001},\"connections\":[],\"nodes\":[],\"schema_version\":\"gogamen.system_spec.v0\",\"spec_id\":\"g\"}"
+  },
+  {
+   "name": "f64_1e7",
+   "kind": "system_spec",
+   "spec_id": "g",
+   "config": [
+    [
+     "k",
+     "f64",
+     "1e7"
+    ]
+   ],
+   "expected": "{\"config\":{\"k\":10000000.0},\"connections\":[],\"nodes\":[],\"schema_version\":\"gogamen.system_spec.v0\",\"spec_id\":\"g\"}"
+  },
+  {
+   "name": "f64_1e21",
+   "kind": "system_spec",
+   "spec_id": "g",
+   "config": [
+    [
+     "k",
+     "f64",
+     "1e21"
+    ]
+   ],
+   "expected": "{\"config\":{\"k\":1000000000000000000000.0},\"connections\":[],\"nodes\":[],\"schema_version\":\"gogamen.system_spec.v0\",\"spec_id\":\"g\"}"
+  },
+  {
+   "name": "f64_big_shortest",
+   "kind": "system_spec",
+   "spec_id": "g",
+   "config": [
+    [
+     "k",
+     "f64",
+     "1.2345678901234568e20"
+    ]
+   ],
+   "expected": "{\"config\":{\"k\":123456789012345680000.0},\"connections\":[],\"nodes\":[],\"schema_version\":\"gogamen.system_spec.v0\",\"spec_id\":\"g\"}"
+  },
+  {
+   "name": "f64_2pow53_plus1",
+   "kind": "system_spec",
+   "spec_id": "g",
+   "config": [
+    [
+     "k",
+     "f64",
+     "9007199254740993"
+    ]
+   ],
+   "expected": "{\"config\":{\"k\":9007199254740992.0},\"connections\":[],\"nodes\":[],\"schema_version\":\"gogamen.system_spec.v0\",\"spec_id\":\"g\"}"
+  },
+  {
+   "name": "f64_sum_artifact",
+   "kind": "system_spec",
+   "spec_id": "g",
+   "config": [
+    [
+     "k",
+     "f64",
+     "0.30000000000000004"
+    ]
+   ],
+   "expected": "{\"config\":{\"k\":0.30000000000000004},\"connections\":[],\"nodes\":[],\"schema_version\":\"gogamen.system_spec.v0\",\"spec_id\":\"g\"}"
+  },
+  {
+   "name": "f64_neg_1e7",
+   "kind": "system_spec",
+   "spec_id": "g",
+   "config": [
+    [
+     "k",
+     "f64",
+     "-1e7"
+    ]
+   ],
+   "expected": "{\"config\":{\"k\":-10000000.0},\"connections\":[],\"nodes\":[],\"schema_version\":\"gogamen.system_spec.v0\",\"spec_id\":\"g\"}"
+  },
+  {
+   "name": "str_empty",
+   "kind": "system_spec",
+   "spec_id": "g",
+   "config": [
+    [
+     "k",
+     "str",
+     ""
+    ]
+   ],
+   "expected": "{\"config\":{\"k\":\"\"},\"connections\":[],\"nodes\":[],\"schema_version\":\"gogamen.system_spec.v0\",\"spec_id\":\"g\"}"
+  },
+  {
+   "name": "str_ascii",
+   "kind": "system_spec",
+   "spec_id": "g",
+   "config": [
+    [
+     "k",
+     "str",
+     "abc XYZ 019"
+    ]
+   ],
+   "expected": "{\"config\":{\"k\":\"abc XYZ 019\"},\"connections\":[],\"nodes\":[],\"schema_version\":\"gogamen.system_spec.v0\",\"spec_id\":\"g\"}"
+  },
+  {
+   "name": "str_quote_backslash",
+   "kind": "system_spec",
+   "spec_id": "g",
+   "config": [
+    [
+     "k",
+     "str",
+     "a\"b\\c"
+    ]
+   ],
+   "expected": "{\"config\":{\"k\":\"a\\\"b\\\\c\"},\"connections\":[],\"nodes\":[],\"schema_version\":\"gogamen.system_spec.v0\",\"spec_id\":\"g\"}"
+  },
+  {
+   "name": "str_slash_unescaped",
+   "kind": "system_spec",
+   "spec_id": "g",
+   "config": [
+    [
+     "k",
+     "str",
+     "a/b"
+    ]
+   ],
+   "expected": "{\"config\":{\"k\":\"a/b\"},\"connections\":[],\"nodes\":[],\"schema_version\":\"gogamen.system_spec.v0\",\"spec_id\":\"g\"}"
+  },
+  {
+   "name": "str_short_escapes",
+   "kind": "system_spec",
+   "spec_id": "g",
+   "config": [
+    [
+     "k",
+     "str",
+     "\b\f\n\r\t"
+    ]
+   ],
+   "expected": "{\"config\":{\"k\":\"\\b\\f\\n\\r\\t\"},\"connections\":[],\"nodes\":[],\"schema_version\":\"gogamen.system_spec.v0\",\"spec_id\":\"g\"}"
+  },
+  {
+   "name": "str_control_u00xx",
+   "kind": "system_spec",
+   "spec_id": "g",
+   "config": [
+    [
+     "k",
+     "str",
+     "\u0000\u0001\u001f"
+    ]
+   ],
+   "expected": "{\"config\":{\"k\":\"\\u0000\\u0001\\u001f\"},\"connections\":[],\"nodes\":[],\"schema_version\":\"gogamen.system_spec.v0\",\"spec_id\":\"g\"}"
+  },
+  {
+   "name": "str_del_raw",
+   "kind": "system_spec",
+   "spec_id": "g",
+   "config": [
+    [
+     "k",
+     "str",
+     "\u007f"
+    ]
+   ],
+   "expected": "{\"config\":{\"k\":\"\u007f\"},\"connections\":[],\"nodes\":[],\"schema_version\":\"gogamen.system_spec.v0\",\"spec_id\":\"g\"}"
+  },
+  {
+   "name": "str_latin1",
+   "kind": "system_spec",
+   "spec_id": "g",
+   "config": [
+    [
+     "k",
+     "str",
+     "caf\u00e9"
+    ]
+   ],
+   "expected": "{\"config\":{\"k\":\"caf\u00e9\"},\"connections\":[],\"nodes\":[],\"schema_version\":\"gogamen.system_spec.v0\",\"spec_id\":\"g\"}"
+  },
+  {
+   "name": "str_bmp_cjk",
+   "kind": "system_spec",
+   "spec_id": "g",
+   "config": [
+    [
+     "k",
+     "str",
+     "\u4e2d\u6587"
+    ]
+   ],
+   "expected": "{\"config\":{\"k\":\"\u4e2d\u6587\"},\"connections\":[],\"nodes\":[],\"schema_version\":\"gogamen.system_spec.v0\",\"spec_id\":\"g\"}"
+  },
+  {
+   "name": "str_line_sep_raw",
+   "kind": "system_spec",
+   "spec_id": "g",
+   "config": [
+    [
+     "k",
+     "str",
+     "\u2028\u2029"
+    ]
+   ],
+   "expected": "{\"config\":{\"k\":\"\u2028\u2029\"},\"connections\":[],\"nodes\":[],\"schema_version\":\"gogamen.system_spec.v0\",\"spec_id\":\"g\"}"
+  },
+  {
+   "name": "str_bmp_max",
+   "kind": "system_spec",
+   "spec_id": "g",
+   "config": [
+    [
+     "k",
+     "str",
+     "\uffff"
+    ]
+   ],
+   "expected": "{\"config\":{\"k\":\"\uffff\"},\"connections\":[],\"nodes\":[],\"schema_version\":\"gogamen.system_spec.v0\",\"spec_id\":\"g\"}"
+  },
+  {
+   "name": "str_non_bmp_emoji",
+   "kind": "system_spec",
+   "spec_id": "g",
+   "config": [
+    [
+     "k",
+     "str",
+     "\ud83d\ude00"
+    ]
+   ],
+   "expected": "{\"config\":{\"k\":\"\ud83d\ude00\"},\"connections\":[],\"nodes\":[],\"schema_version\":\"gogamen.system_spec.v0\",\"spec_id\":\"g\"}"
+  },
+  {
+   "name": "str_non_bmp_min",
+   "kind": "system_spec",
+   "spec_id": "g",
+   "config": [
+    [
+     "k",
+     "str",
+     "\ud800\udc00"
+    ]
+   ],
+   "expected": "{\"config\":{\"k\":\"\ud800\udc00\"},\"connections\":[],\"nodes\":[],\"schema_version\":\"gogamen.system_spec.v0\",\"spec_id\":\"g\"}"
+  },
+  {
+   "name": "str_non_bmp_max",
+   "kind": "system_spec",
+   "spec_id": "g",
+   "config": [
+    [
+     "k",
+     "str",
+     "\udbff\udfff"
+    ]
+   ],
+   "expected": "{\"config\":{\"k\":\"\udbff\udfff\"},\"connections\":[],\"nodes\":[],\"schema_version\":\"gogamen.system_spec.v0\",\"spec_id\":\"g\"}"
+  },
+  {
+   "name": "str_mixed",
+   "kind": "system_spec",
+   "spec_id": "g",
+   "config": [
+    [
+     "k",
+     "str",
+     "a\ud83d\ude00\n\u00e9\""
+    ]
+   ],
+   "expected": "{\"config\":{\"k\":\"a\ud83d\ude00\\n\u00e9\\\"\"},\"connections\":[],\"nodes\":[],\"schema_version\":\"gogamen.system_spec.v0\",\"spec_id\":\"g\"}"
+  },
+  {
+   "name": "field_order_config_keys",
+   "kind": "system_spec",
+   "spec_id": "g",
+   "config": [
+    [
+     "zeta",
+     "i64",
+     "1"
+    ],
+    [
+     "alpha",
+     "bool",
+     "true"
+    ],
+    [
+     "Mid",
+     "str",
+     "m"
+    ],
+    [
+     "beta",
+     "i64",
+     "-9223372036854775808"
+    ]
+   ],
+   "expected": "{\"config\":{\"Mid\":\"m\",\"alpha\":true,\"beta\":-9223372036854775808,\"zeta\":1},\"connections\":[],\"nodes\":[],\"schema_version\":\"gogamen.system_spec.v0\",\"spec_id\":\"g\"}"
+  },
+  {
+   "name": "key_order_unicode_codepoint",
+   "kind": "system_spec",
+   "spec_id": "g",
+   "config": [
+    [
+     "\uffff",
+     "i64",
+     "1"
+    ],
+    [
+     "\ud800\udc00",
+     "i64",
+     "2"
+    ],
+    [
+     "\u00e9",
+     "i64",
+     "3"
+    ],
+    [
+     "z",
+     "i64",
+     "4"
+    ]
+   ],
+   "expected": "{\"config\":{\"z\":4,\"\u00e9\":3,\"\uffff\":1,\"\ud800\udc00\":2},\"connections\":[],\"nodes\":[],\"schema_version\":\"gogamen.system_spec.v0\",\"spec_id\":\"g\"}"
+  },
+  {
+   "name": "key_escaping",
+   "kind": "system_spec",
+   "spec_id": "g",
+   "config": [
+    [
+     "a\"b",
+     "bool",
+     "false"
+    ],
+    [
+     "n\nl",
+     "bool",
+     "true"
+    ]
+   ],
+   "expected": "{\"config\":{\"a\\\"b\":false,\"n\\nl\":true},\"connections\":[],\"nodes\":[],\"schema_version\":\"gogamen.system_spec.v0\",\"spec_id\":\"g\"}"
+  },
+  {
+   "name": "empty_everything",
+   "kind": "system_spec",
+   "spec_id": "g",
+   "config": [],
+   "expected": "{\"config\":{},\"connections\":[],\"nodes\":[],\"schema_version\":\"gogamen.system_spec.v0\",\"spec_id\":\"g\"}"
+  },
+  {
+   "name": "unicode_spec_id",
+   "kind": "system_spec",
+   "spec_id": "s\u00e9\ud83d\ude00",
+   "config": [],
+   "expected": "{\"config\":{},\"connections\":[],\"nodes\":[],\"schema_version\":\"gogamen.system_spec.v0\",\"spec_id\":\"s\u00e9\ud83d\ude00\"}"
+  },
+  {
+   "name": "node_empty_ports_and_config",
+   "kind": "system_spec",
+   "spec_id": "g",
+   "config": [],
+   "nodes": [
+    {
+     "id": "n",
+     "kind": "k",
+     "config": [],
+     "ports": []
+    }
+   ],
+   "expected": "{\"config\":{},\"connections\":[],\"nodes\":[{\"config\":{},\"id\":\"n\",\"kind\":\"k\",\"ports\":[]}],\"schema_version\":\"gogamen.system_spec.v0\",\"spec_id\":\"g\"}"
+  },
+  {
+   "name": "node_ports_and_config_order",
+   "kind": "system_spec",
+   "spec_id": "g",
+   "config": [],
+   "nodes": [
+    {
+     "id": "a",
+     "kind": "world",
+     "config": [
+      [
+       "y",
+       "f64",
+       "1e7"
+      ],
+      [
+       "x",
+       "str",
+       "\u00e9"
+      ]
+     ],
+     "ports": [
+      [
+       "out",
+       "output",
+       "f64"
+      ],
+      [
+       "in",
+       "input",
+       "bool"
+      ],
+      [
+       "c",
+       "input",
+       "custom:Obs\"Vec"
+      ]
+     ]
+    }
+   ],
+   "expected": "{\"config\":{},\"connections\":[],\"nodes\":[{\"config\":{\"x\":\"\u00e9\",\"y\":10000000.0},\"id\":\"a\",\"kind\":\"world\",\"ports\":[{\"direction\":\"output\",\"id\":\"out\",\"port_type\":\"f64\"},{\"direction\":\"input\",\"id\":\"in\",\"port_type\":\"bool\"},{\"direction\":\"input\",\"id\":\"c\",\"port_type\":{\"custom\":\"Obs\\\"Vec\"}}]}],\"schema_version\":\"gogamen.system_spec.v0\",\"spec_id\":\"g\"}"
+  },
+  {
+   "name": "expr_const_zero",
+   "kind": "expr_const_f64",
+   "value": "-0.0",
+   "unit": "dimensionless",
+   "expected": "{\"op\":\"const_f64\",\"unit\":\"dimensionless\",\"value\":0.0}"
+  },
+  {
+   "name": "expr_const_one",
+   "kind": "expr_const_f64",
+   "value": "1.0",
+   "unit": "dimensionless",
+   "expected": "{\"op\":\"const_f64\",\"unit\":\"dimensionless\",\"value\":1.0}"
+  },
+  {
+   "name": "expr_const_1e7",
+   "kind": "expr_const_f64",
+   "value": "1e7",
+   "unit": "dimensionless",
+   "expected": "{\"op\":\"const_f64\",\"unit\":\"dimensionless\",\"value\":10000000.0}"
+  },
+  {
+   "name": "expr_const_1e-5",
+   "kind": "expr_const_f64",
+   "value": "1e-5",
+   "unit": "dimensionless",
+   "expected": "{\"op\":\"const_f64\",\"unit\":\"dimensionless\",\"value\":0.00001}"
+  },
+  {
+   "name": "expr_const_neg_frac",
+   "kind": "expr_const_f64",
+   "value": "-0.75",
+   "unit": "dimensionless",
+   "expected": "{\"op\":\"const_f64\",\"unit\":\"dimensionless\",\"value\":-0.75}"
+  },
+  {
+   "name": "expr_const_1e21",
+   "kind": "expr_const_f64",
+   "value": "1e21",
+   "unit": "dimensionless",
+   "expected": "{\"op\":\"const_f64\",\"unit\":\"dimensionless\",\"value\":1000000000000000000000.0}"
+  },
+  {
+   "name": "expr_nested_add_unicode_var",
+   "kind": "expr_nested_add",
+   "value": "1e-7",
+   "expected": "{\"op\":\"add\",\"lhs\":{\"op\":\"const_f64\",\"unit\":\"dimensionless\",\"value\":0.0000001},\"rhs\":{\"op\":\"var\",\"name\":\"x\u00e9\"}}"
+  }
+ ]
+}

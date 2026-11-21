@@ -102,8 +102,33 @@ internal object CanonicalJson {
         return sb.toString()
     }
 
-    private fun normalizeDouble(value: Double): String =
-        (if (value == 0.0) 0.0 else value).toString()
+    private fun normalizeDouble(value: Double): String = canonicalF64(value)
+
+    /**
+     * Canonical f64 text, identical to Rust `write_canonical_f64` (`format!("{}")` + `.0` if integral):
+     * shortest round-trip digits, never exponent notation, `-0.0` normalized to `0.0`.
+     * (GOG-152: `Double.toString` uses `1.0E7` / `1.0E-4`, which diverged from Rust.)
+     */
+    internal fun canonicalF64(value: Double): String {
+        require(value.isFinite()) { "canonical JSON f64 must be finite, got $value" }
+        if (value == 0.0) return "0.0"
+        val plain = java.math.BigDecimal(value.toString()).stripTrailingZeros().toPlainString()
+        return if ('.' in plain) plain else "$plain.0"
+    }
+
+    /** Rust `BTreeMap<String,_>` orders by UTF-8 bytes == Unicode code point order; Java's natural order is UTF-16. */
+    private val codePointOrder = Comparator<String> { a, b ->
+        var i = 0
+        var j = 0
+        while (i < a.length && j < b.length) {
+            val ca = a.codePointAt(i)
+            val cb = b.codePointAt(j)
+            if (ca != cb) return@Comparator ca.compareTo(cb)
+            i += Character.charCount(ca)
+            j += Character.charCount(cb)
+        }
+        (a.length - i).compareTo(b.length - j)
+    }
 
     private fun writeEpistemicQuestion(out: StringBuilder, q: EpistemicQuestion) {
         out.append('{')
@@ -170,7 +195,7 @@ internal object CanonicalJson {
                 out.append("{\"op\":\"const_f64\",\"unit\":")
                 writeJsonString(out, node.unit.wireName)
                 out.append(",\"value\":")
-                out.append(node.normalizedValue.toString())
+                out.append(canonicalF64(node.value))
                 out.append('}')
             }
             is ExprAst.ConstBool -> {
@@ -300,7 +325,7 @@ internal object CanonicalJson {
     private fun writeConfigMap(out: StringBuilder, config: SortedMap<String, SpecConfigValue>) {
         out.append('{')
         var first = true
-        for ((key, value) in config) {
+        for ((key, value) in config.entries.sortedWith { x, y -> codePointOrder.compare(x.key, y.key) }) {
             if (!first) out.append(',')
             first = false
             writeJsonString(out, key)
@@ -308,7 +333,7 @@ internal object CanonicalJson {
             when (value) {
                 is SpecConfigValue.Bool -> out.append(if (value.value) "true" else "false")
                 is SpecConfigValue.I64 -> out.append(value.value)
-                is SpecConfigValue.F64 -> out.append(value.normalized.toString())
+                is SpecConfigValue.F64 -> out.append(canonicalF64(value.value))
                 is SpecConfigValue.Str -> writeJsonString(out, value.value)
             }
         }
