@@ -534,6 +534,125 @@ mod tests {
         assert!(svg.contains("<circle") && svg.contains(">G</text>") && svg.contains(">#</text>"));
     }
 
+    // GOG-146: la simulación no depende del refresco gráfico ni se observa obsoleta.
+
+    fn gog_146_ui_running(config: GridWorldConfig, max_per_pump: Option<u64>) -> Ui {
+        let mut ui = Ui::new(config, SEED);
+        if let Some(m) = max_per_pump {
+            ui.shell.engine_handle().unwrap().set_max_ticks_per_pump(m);
+        }
+        assert_eq!(ui.send(ControlAction::Resume).outcome, AckOutcome::Applied);
+        ui
+    }
+
+    fn gog_146_tick(ui: &Ui) -> u64 {
+        ui.shell.observation_port().unwrap().observe().tick.as_u64()
+    }
+
+    #[test]
+    fn gog_146_no_viewer_ticks_and_hashes_match_headless() {
+        for config in [cfg(), custom_cfg()] {
+            let expected = headless(config.clone(), SEED, 64);
+            // Visor cerrado: el motor avanza ticks sin ningún sync/render.
+            let mut ui = gog_146_ui_running(config.clone(), None);
+            let host = ui.shell.engine_handle().unwrap();
+            host.close_viewer();
+            for _ in 0..30 {
+                assert_eq!(host.pump(1), 1);
+            }
+            let obs = ui.shell.observation_port().unwrap().observe();
+            assert_eq!(obs.tick.as_u64(), 30);
+            assert!(!obs.viewer_attached);
+            assert_eq!(obs.run_state, crate::control::RunState::Running);
+            // Sin sync la sesión no avanzó sola (el render no simula) ...
+            assert!(ui.probe.snapshot().unwrap().records.is_empty());
+            // ... y un único sync alcanza el mismo estado que el lab headless.
+            ui.shell.sync_active();
+            let want = &expected[..expected.len().min(30)];
+            let snap = ui.probe.snapshot().unwrap();
+            assert_eq!(snap.records, want);
+            // hash por tick idéntico
+            for (i, r) in want.iter().enumerate() {
+                assert_eq!(snap.records[i].trace_hash, r.trace_hash, "tick {}", i + 1);
+            }
+        }
+    }
+
+    #[test]
+    fn gog_146_per_tick_sync_hash_equals_headless() {
+        let expected = headless(cfg(), SEED, 40);
+        let mut ui = gog_146_ui_running(cfg(), None);
+        let host = ui.shell.engine_handle().unwrap();
+        for t in 1..=40usize {
+            host.pump(1);
+            ui.shell.sync_active();
+            let snap = ui.probe.snapshot().unwrap();
+            let n = t.min(expected.len());
+            assert_eq!(snap.records, expected[..n], "tick {t}");
+            assert_eq!(snap.view.tick.as_u64(), n as u64, "no stale view at {t}");
+            let _ = ui.svg();
+        }
+    }
+
+    #[test]
+    fn gog_146_slow_or_skipped_viewer_loses_no_records_nor_changes_physics() {
+        let expected = headless(custom_cfg(), SEED, 90);
+        let total = 90u64;
+        let mut reference = None;
+        // periodos de sync: cada tick, raro, y nunca hasta el final; con tope de pump pequeño.
+        for (period, cap) in [(1u64, None), (7, None), (1000, None), (13, Some(5u64))] {
+            let mut ui = gog_146_ui_running(custom_cfg(), cap);
+            let host = ui.shell.engine_handle().unwrap();
+            let mut done = 0u64;
+            let mut i = 0u64;
+            while done < total {
+                let out = host.pump_bounded(3);
+                done += out.executed;
+                i += 1;
+                if i.is_multiple_of(period) {
+                    ui.shell.sync_active();
+                    let snap = ui.probe.snapshot().unwrap();
+                    let n = (done as usize).min(expected.len());
+                    assert_eq!(snap.records, expected[..n], "period {period} tick {done}");
+                }
+            }
+            // drena backlog residual
+            while host.pump_bounded(0).pending > 0 {}
+            let end = gog_146_tick(&ui);
+            ui.shell.sync_active();
+            let snap = ui.probe.snapshot().unwrap();
+            assert_eq!(snap.records, expected[..(end as usize).min(expected.len())]);
+            assert_eq!(snap.view.tick.as_u64(), end.min(expected.len() as u64));
+            if end >= total {
+                match &reference {
+                    None => reference = Some(snap.trace_hash),
+                    Some(h) => {
+                        assert_eq!(*h, snap.trace_hash, "period {period} changed physics")
+                    }
+                }
+            }
+        }
+        assert!(reference.is_some());
+    }
+
+    #[test]
+    fn gog_146_reset_between_skipped_syncs_replays_from_seed() {
+        let mut ui = gog_146_ui_running(cfg(), None);
+        let host = ui.shell.engine_handle().unwrap();
+        host.pump(5);
+        ui.shell.sync_active();
+        host.pump(6); // sin sync
+        // Reset + reanudar + más ticks, todo sin sync intermedio.
+        assert_eq!(ui.send(ControlAction::Reset).outcome, AckOutcome::Applied);
+        let a = ui.send(ControlAction::Resume);
+        assert_eq!(a.outcome, AckOutcome::Applied);
+        host.pump(4);
+        ui.shell.sync_active();
+        let snap = ui.probe.snapshot().unwrap();
+        assert_eq!(snap.records, headless(cfg(), SEED, 4));
+        assert_eq!(gog_146_tick(&ui), 4);
+    }
+
     fn strip_comments_and_tests(src: &str) -> String {
         let cut = src.find("#[cfg(test)]").unwrap_or(src.len());
         src[..cut]

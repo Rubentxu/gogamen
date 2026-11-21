@@ -180,3 +180,50 @@ fn traces_are_reproducible_and_seed_sensitive() {
     );
     assert_eq!(r1.trace_hash, r2.trace_hash);
 }
+
+#[test]
+fn gog_151_fixture_output_marks_synthetic_exit_ok() {
+    let (c, out) = run_cmd(&["--fixture"]);
+    assert_eq!(c, EXIT_OK);
+    assert!(out.contains("synthetic fixture, not Mario"));
+    assert!(out.contains("NOT a real ROM"));
+    assert!(out.contains("no emulation backend"));
+}
+
+#[test]
+fn gog_151_real_rom_and_no_rom_are_not_run_without_backend() {
+    let rom = std::env::temp_dir().join("gog151_known_rom.bin");
+    std::fs::write(&rom, b"gog151-bytes").unwrap();
+    let conf = std::env::temp_dir().join("gog151_known.conf");
+    std::fs::write(
+        &conf,
+        format!("sha256 {} ci-test\n", sha256_hex(b"gog151-bytes")),
+    )
+    .unwrap();
+    let (c, out) = run_cmd(&[
+        "--rom",
+        rom.to_str().unwrap(),
+        "--known",
+        conf.to_str().unwrap(),
+    ]);
+    assert_eq!(c, EXIT_NOT_RUN);
+    assert!(out.contains("backend_unavailable"));
+    assert!(out.contains("backend is not integrated"));
+    assert!(out.contains("no completion is claimed"));
+    assert!(!out.contains("goal_reached=true"));
+    let (c, out) = run_cmd(&[]);
+    assert_eq!(c, EXIT_NOT_RUN);
+    assert!(out.contains("backend is not integrated"));
+    assert!(out.contains("no completion is claimed"));
+}
+
+#[test]
+fn gog_151_help_exit_ok_and_distinguishes_modes() {
+    let (c, out) = run_cmd(&["--help"]);
+    assert_eq!(c, EXIT_OK);
+    assert!(out.contains("usage: mario_run"));
+    assert!(out.contains("--fixture"));
+    assert!(out.contains("not integrated"));
+    let (c, _) = run_cmd(&["--bogus"]);
+    assert_eq!(c, EXIT_ERROR);
+}

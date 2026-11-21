@@ -110,6 +110,20 @@ impl fmt::Display for ShellError {
 
 impl std::error::Error for ShellError {}
 
+/// Resultado tipado de [`StudioShell::select_lab_outcome`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SelectOutcome {
+    /// Se creó una sesión nueva con las opciones pedidas.
+    Selected,
+    /// El lab ya estaba activo con las mismas opciones; no se hizo nada.
+    Unchanged,
+    /// El lab ya estaba activo con otras opciones; se conservó la sesión y no se aplicó nada.
+    OptionsConflict {
+        active: SessionOptions,
+        requested: SessionOptions,
+    },
+}
+
 struct Active {
     index: usize,
     session: Box<dyn LabSession>,
@@ -166,18 +180,50 @@ impl StudioShell {
         self.select_lab_with(id, SessionOptions::simulated())
     }
 
-    /// Como [`Self::select_lab`] con opciones de sesión (tipo, capacidad, `stop_on_close`). Las
-    /// opciones sólo se aplican si se crea una sesión nueva.
+    /// Como [`Self::select_lab`] con opciones de sesión (tipo, capacidad, `stop_on_close`).
+    ///
+    /// Compatibilidad: delega en [`Self::select_lab_outcome`] y descarta el resultado tipado, de
+    /// modo que reseleccionar el lab activo con opciones distintas sigue siendo un no-op que
+    /// conserva la sesión y sus opciones. Quien necesite detectarlo debe usar
+    /// [`Self::select_lab_outcome`].
     pub fn select_lab_with(&mut self, id: &str, options: SessionOptions) -> Result<(), ShellError> {
-        self.session_options = options;
+        self.select_lab_outcome(id, options).map(|_| ())
+    }
+
+    /// Opciones con las que se creó la sesión activa (`None` sin sesión).
+    pub fn active_session_options(&self) -> Option<SessionOptions> {
+        self.active.as_ref().map(|_| self.session_options)
+    }
+
+    /// Selección transaccional con resultado tipado ([`SelectOutcome`]).
+    ///
+    /// Primero se valida y se decide; sólo se muta si se crea una sesión nueva:
+    /// - lab desconocido: `Err(UnknownLab)` sin tocar opciones ni sesión;
+    /// - lab ya activo con las mismas opciones: `Unchanged`;
+    /// - lab ya activo con opciones distintas: `OptionsConflict`, sin cambios (la sesión viva
+    ///   conserva sus opciones; para aplicarlas hay que `close_lab()` y volver a seleccionar);
+    /// - en otro caso se cierra la sesión previa, se crea la nueva y devuelve `Selected`.
+    pub fn select_lab_outcome(
+        &mut self,
+        id: &str,
+        options: SessionOptions,
+    ) -> Result<SelectOutcome, ShellError> {
         let index = self
             .labs
             .iter()
             .position(|l| l.id.as_str() == id)
             .ok_or_else(|| ShellError::UnknownLab(id.to_owned()))?;
         if self.active.as_ref().is_some_and(|a| a.index == index) {
-            return Ok(());
+            return Ok(if self.session_options == options {
+                SelectOutcome::Unchanged
+            } else {
+                SelectOutcome::OptionsConflict {
+                    active: self.session_options,
+                    requested: options,
+                }
+            });
         }
+        self.session_options = options;
         self.close_lab();
         let session = (self.labs[index].factory)();
         let mut session = session;
@@ -204,7 +250,7 @@ impl StudioShell {
             session,
             host,
         });
-        Ok(())
+        Ok(SelectOutcome::Selected)
     }
 
     /// Cierra la sesión activa liberando sus recursos.
@@ -427,6 +473,74 @@ mod tests {
             StudioShell::new(dup, 1.0, 1.0),
             Err(ShellError::DuplicateLab(_))
         ));
+    }
+
+    #[test]
+    fn gog_149_unknown_lab_is_transactional() {
+        use crate::control::*;
+        let mut shell = StudioShell::new(fixture_entries(), 100.0, 100.0).unwrap();
+        let phys = SessionOptions::of_kind(SessionKind::Physical);
+        for active_first in [false, true] {
+            if active_first {
+                shell.select_lab("fixture.alpha").unwrap();
+            }
+            let before = (
+                shell.active_lab_id().map(str::to_owned),
+                shell.active_session_options(),
+                shell.session_options,
+                shell.next_epoch,
+                shell.camera().window(),
+            );
+            assert_eq!(
+                shell.select_lab_with("nope", phys),
+                Err(ShellError::UnknownLab("nope".into()))
+            );
+            let after = (
+                shell.active_lab_id().map(str::to_owned),
+                shell.active_session_options(),
+                shell.session_options,
+                shell.next_epoch,
+                shell.camera().window(),
+            );
+            assert_eq!(before, after);
+        }
+        assert_eq!(shell.session_options, SessionOptions::simulated());
+    }
+
+    #[test]
+    fn gog_149_reselect_returns_typed_outcome() {
+        use crate::control::*;
+        let mut shell = StudioShell::new(fixture_entries(), 100.0, 100.0).unwrap();
+        let sim = SessionOptions::simulated();
+        let phys = SessionOptions::of_kind(SessionKind::Physical);
+        assert_eq!(
+            shell.select_lab_outcome("fixture.alpha", sim),
+            Ok(SelectOutcome::Selected)
+        );
+        assert_eq!(
+            shell.select_lab_outcome("fixture.alpha", sim),
+            Ok(SelectOutcome::Unchanged)
+        );
+        assert_eq!(
+            shell.select_lab_outcome("fixture.alpha", phys),
+            Ok(SelectOutcome::OptionsConflict {
+                active: sim,
+                requested: phys
+            })
+        );
+        // Conflict leaves the live session and its options untouched.
+        assert_eq!(shell.active_session_options(), Some(sim));
+        assert!(matches!(shell.control_port(), Some(Ok(_))));
+        // Legacy wrapper keeps no-op semantics.
+        assert_eq!(shell.select_lab_with("fixture.alpha", phys), Ok(()));
+        assert_eq!(shell.active_session_options(), Some(sim));
+        // Explicit close + reselect applies the new options.
+        shell.close_lab();
+        assert_eq!(
+            shell.select_lab_outcome("fixture.alpha", phys),
+            Ok(SelectOutcome::Selected)
+        );
+        assert_eq!(shell.active_session_options(), Some(phys));
     }
 
     #[test]

@@ -80,7 +80,9 @@ pub use robot3d::{
     Selection, ViewState, build_scene, robot3d_lab_entry,
 };
 pub use scenario_editor::{EditError, ResourceKind, ScenarioDraft, ScenarioEdit};
-pub use shell::{LabEntry, LabFactory, LabSession, ShellError, StudioShell, ViewInput};
+pub use shell::{
+    LabEntry, LabFactory, LabSession, SelectOutcome, ShellError, StudioShell, ViewInput,
+};
 pub use status::{
     RenderTestReport, RenderTestStatus, has_graphical_display, run_window_render_test,
 };

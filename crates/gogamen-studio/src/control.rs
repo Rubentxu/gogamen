@@ -19,6 +19,97 @@ use crate::params::{
 pub const MAX_SPEED: f64 = 1000.0;
 /// Capacidad del log de rechazos visible en la observación (los más antiguos se descartan).
 pub const REJECTION_LOG_CAP: usize = 64;
+/// Versión (aditiva) del contrato de `pump`: 1 = sin tope; 2 (GOG-148) = ticks por llamada
+/// acotados con backlog (`PumpOutcome`). `pump` conserva su firma.
+pub const PUMP_CONTRACT_VERSION: u32 = 2;
+/// Tope por defecto de ticks ejecutados por llamada a `pump` (bajo el lock).
+pub const DEFAULT_MAX_TICKS_PER_PUMP: u64 = 100_000;
+/// Backlog máximo retenido; el exceso se descarta (se reporta en `dropped`).
+pub const MAX_PUMP_BACKLOG: u64 = 1 << 32;
+
+/// Resultado de [`SessionHost::pump_bounded`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PumpOutcome {
+    /// Ticks realmente avanzados en esta llamada.
+    pub executed: u64,
+    /// Ticks debidos aún no ejecutados (backlog); el cliente continúa con más `pump`.
+    pub pending: u64,
+    /// `true` si el tope por llamada impidió ejecutar todo lo debido.
+    pub truncated: bool,
+    /// Ticks descartados por superar `MAX_PUMP_BACKLOG` (peticiones absurdas).
+    pub dropped: u64,
+}
+
+/// Capacidad por defecto de la ventana de deduplicación de `CommandId` (GOG-141).
+pub const DEFAULT_DEDUP_WINDOW: usize = 4096;
+
+/// Resultado de registrar un id en la ventana.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum DedupVerdict {
+    New,
+    Duplicate,
+    Expired,
+}
+
+/// Ventana deslizante acotada de ids vistos. Semántica: un id dentro de la ventana es
+/// `Duplicate`; un id fuera de ella con valor <= al mayor id expulsado es `Expired` (se
+/// rechaza, pues podría ser un duplicado ya olvidado); cualquier otro es `New`.
+/// Memoria: `len() <= capacity` siempre.
+struct DedupWindow {
+    capacity: usize,
+    order: VecDeque<CommandId>,
+    set: HashSet<CommandId>,
+    max_evicted: Option<CommandId>,
+}
+
+impl DedupWindow {
+    fn new(capacity: usize) -> Self {
+        let capacity = capacity.max(1);
+        Self {
+            capacity,
+            order: VecDeque::new(),
+            set: HashSet::new(),
+            max_evicted: None,
+        }
+    }
+
+    fn len(&self) -> usize {
+        self.set.len()
+    }
+
+    fn clear(&mut self) {
+        self.order.clear();
+        self.set.clear();
+        self.max_evicted = None;
+    }
+
+    fn evict_to(&mut self, cap: usize) {
+        while self.order.len() > cap {
+            if let Some(old) = self.order.pop_front() {
+                self.set.remove(&old);
+                self.max_evicted = Some(self.max_evicted.map_or(old, |m| m.max(old)));
+            }
+        }
+    }
+
+    fn set_capacity(&mut self, capacity: usize) {
+        self.capacity = capacity.max(1);
+        self.evict_to(self.capacity);
+    }
+
+    fn check_and_insert(&mut self, id: CommandId) -> DedupVerdict {
+        if self.set.contains(&id) {
+            return DedupVerdict::Duplicate;
+        }
+        if self.max_evicted.is_some_and(|m| id <= m) {
+            return DedupVerdict::Expired;
+        }
+        self.evict_to(self.capacity - 1);
+        self.order.push_back(id);
+        self.set.insert(id);
+        DedupVerdict::New
+    }
+}
 
 /// Identificador de comando, único por sesión (reutilizarlo se rechaza como duplicado).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -72,6 +163,9 @@ pub struct ControlCommand {
 pub enum RejectReason {
     InvalidSpeed,
     DuplicateCommandId,
+    /// Id fuera de la ventana de deduplicación y no mayor que el mayor id expulsado: no se
+    /// puede descartar que sea un duplicado, así que se rechaza (opción segura, GOG-141).
+    ExpiredCommandId,
     StaleSession {
         current: SessionId,
     },
@@ -207,8 +301,11 @@ struct Inner {
     speed: f64,
     /// Ticks fraccionarios acumulados por `pump` con velocidad no entera.
     carry: f64,
+    /// Ticks debidos y no ejecutados por el tope de `pump` (GOG-148).
+    backlog: u64,
+    max_ticks_per_pump: u64,
     viewer_attached: bool,
-    seen: HashSet<CommandId>,
+    seen: DedupWindow,
     rejection_count: u64,
     rejections: VecDeque<RejectionRecord>,
     params: ParamState,
@@ -243,8 +340,12 @@ impl Inner {
                 },
             );
         }
-        if !self.seen.insert(c.id) {
-            return self.reject(c.id, RejectReason::DuplicateCommandId);
+        match self.seen.check_and_insert(c.id) {
+            DedupVerdict::New => {}
+            DedupVerdict::Duplicate => {
+                return self.reject(c.id, RejectReason::DuplicateCommandId);
+            }
+            DedupVerdict::Expired => return self.reject(c.id, RejectReason::ExpiredCommandId),
         }
         if self.run_state == RunState::Stopped {
             return self.reject(c.id, RejectReason::EngineStopped);
@@ -268,6 +369,7 @@ impl Inner {
                 self.tick = Tick::ZERO;
                 self.run_state = RunState::Paused;
                 self.carry = 0.0;
+                self.backlog = 0;
                 self.session.generation += 1;
                 self.seen.clear();
                 self.params.reset();
@@ -308,9 +410,16 @@ impl Inner {
         if !self.options.controllable() {
             return self.param_reject(c.id, ParamRejectReason::ReadOnlySession);
         }
-        if !self.seen.insert(c.id) {
-            let r = ParamRejectReason::Session(RejectReason::DuplicateCommandId);
-            return self.param_reject(c.id, r);
+        match self.seen.check_and_insert(c.id) {
+            DedupVerdict::New => {}
+            DedupVerdict::Duplicate => {
+                let r = ParamRejectReason::Session(RejectReason::DuplicateCommandId);
+                return self.param_reject(c.id, r);
+            }
+            DedupVerdict::Expired => {
+                let r = ParamRejectReason::Session(RejectReason::ExpiredCommandId);
+                return self.param_reject(c.id, r);
+            }
         }
         if self.run_state == RunState::Stopped {
             let r = ParamRejectReason::Session(RejectReason::EngineStopped);
@@ -364,8 +473,10 @@ impl SessionHost {
                 run_state: RunState::Paused,
                 speed: 1.0,
                 carry: 0.0,
+                backlog: 0,
+                max_ticks_per_pump: DEFAULT_MAX_TICKS_PER_PUMP,
                 viewer_attached: true,
-                seen: HashSet::new(),
+                seen: DedupWindow::new(DEFAULT_DEDUP_WINDOW),
                 rejection_count: 0,
                 rejections: VecDeque::new(),
                 params: ParamState::new(schema),
@@ -377,28 +488,73 @@ impl SessionHost {
         self.inner.lock().unwrap_or_else(|p| p.into_inner())
     }
 
+    /// Cambia el tope de ticks ejecutados por llamada a `pump` (mínimo 1).
+    /// Capacidad de la ventana de deduplicación (mín. 1); reduce expulsando los más antiguos.
+    pub fn set_dedup_window(&self, capacity: usize) {
+        self.lock().seen.set_capacity(capacity);
+    }
+
+    /// Ids actualmente recordados por la ventana (siempre <= capacidad).
+    pub fn dedup_len(&self) -> usize {
+        self.lock().seen.len()
+    }
+
+    pub fn set_max_ticks_per_pump(&self, max: u64) {
+        self.lock().max_ticks_per_pump = max.max(1);
+    }
+
     /// Avanza `units` unidades de tiempo virtual: si está `Running` suma `floor(carry + speed *
     /// units)` ticks (fracción acumulada). Devuelve los ticks avanzados. No cambia `revision`.
+    ///
+    /// Semántica (contrato v2, GOG-148): se ejecutan como máximo `max_ticks_per_pump` ticks por
+    /// llamada (defecto [`DEFAULT_MAX_TICKS_PER_PUMP`]) para no congelar el mutex. El resto queda
+    /// como backlog (no se pierde ni se rechaza) y se drena en llamadas posteriores, también con
+    /// `units == 0`; use [`Self::pump_bounded`] para ver `pending`/`truncated`. Con valores
+    /// normales (por debajo del tope) el comportamiento es idéntico al anterior.
     pub fn pump(&self, units: u64) -> u64 {
+        self.pump_bounded(units).executed
+    }
+
+    /// Como [`Self::pump`] pero informa de `executed`, `pending`, `truncated` y `dropped`.
+    pub fn pump_bounded(&self, units: u64) -> PumpOutcome {
         let mut g = self.lock();
         if g.run_state != RunState::Running {
-            return 0;
+            return PumpOutcome {
+                executed: 0,
+                pending: g.backlog,
+                truncated: false,
+                dropped: 0,
+            };
         }
         let total = g.carry + g.speed * units as f64;
         let whole = total.floor();
         g.carry = total - whole;
+        let due = g.backlog.saturating_add(whole as u64);
+        let dropped = due.saturating_sub(MAX_PUMP_BACKLOG);
+        let due = due - dropped;
+        let run = due.min(g.max_ticks_per_pump);
         let mut advanced = 0u64;
-        for _ in 0..(whole as u64) {
+        let mut overflow = false;
+        for _ in 0..run {
             match g.tick.next() {
                 Ok(t) => {
                     g.tick = t;
                     g.params.apply_boundary(t);
                     advanced += 1;
                 }
-                Err(_) => break,
+                Err(_) => {
+                    overflow = true;
+                    break;
+                }
             }
         }
-        advanced
+        g.backlog = if overflow { 0 } else { due - advanced };
+        PumpOutcome {
+            executed: advanced,
+            pending: g.backlog,
+            truncated: g.backlog > 0,
+            dropped,
+        }
     }
 
     /// El visor se cierra. El motor sigue como estaba salvo `stop_on_close` (opt-in).
@@ -752,5 +908,132 @@ mod tests {
             }
         );
         assert_eq!(o.observe().tick, Tick::ZERO);
+    }
+
+    #[test]
+    fn gog_148_extreme_units_is_bounded_and_leaves_backlog() {
+        let (h, c, o) = setup();
+        let s = o.observe().session;
+        c.submit(cmd(1, s, ControlAction::Resume));
+        h.set_max_ticks_per_pump(1000);
+        let out = h.pump_bounded(u64::MAX);
+        assert_eq!(out.executed, 1000);
+        assert!(out.truncated);
+        assert!(out.pending > 0);
+        assert_eq!(o.observe().tick, Tick::new(1000));
+        assert_eq!(h.pump(0), 1000, "backlog drains on later calls");
+        assert_eq!(PUMP_CONTRACT_VERSION, 2);
+    }
+
+    #[test]
+    fn gog_148_normal_units_unchanged_and_backlog_conserved() {
+        let (h, c, o) = setup();
+        let s = o.observe().session;
+        c.submit(cmd(1, s, ControlAction::Resume));
+        h.set_max_ticks_per_pump(10);
+        let out = h.pump_bounded(25);
+        assert_eq!((out.executed, out.pending, out.truncated), (10, 15, true));
+        assert_eq!(h.pump(0), 10);
+        let out = h.pump_bounded(0);
+        assert_eq!((out.executed, out.pending, out.truncated), (5, 0, false));
+        c.submit(cmd(2, s, ControlAction::Reset));
+        assert_eq!(h.pump_bounded(0).pending, 0);
+    }
+
+    #[test]
+    fn gog_148_observe_and_control_progress_during_huge_pump() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        use std::time::{Duration, Instant};
+        let (h, c, o) = setup();
+        let s = o.observe().session;
+        c.submit(cmd(1, s, ControlAction::Resume));
+        let done = Arc::new(AtomicBool::new(false));
+        let d2 = done.clone();
+        let h2 = h.clone();
+        let t0 = Instant::now();
+        let pumper = std::thread::spawn(move || {
+            for _ in 0..50 {
+                h2.pump_bounded(u64::MAX);
+            }
+            d2.store(true, Ordering::SeqCst);
+        });
+        let mut rounds = 0u64;
+        let mut next_id = 100;
+        while !done.load(Ordering::SeqCst) {
+            let _ = o.observe();
+            let _ = c.submit(cmd(next_id, s, ControlAction::SetSpeed(1.0)));
+            next_id += 1;
+            rounds += 1;
+            assert!(t0.elapsed() < Duration::from_secs(60), "host frozen");
+        }
+        pumper.join().unwrap();
+        assert!(rounds >= 1);
+        assert!(t0.elapsed() < Duration::from_secs(60));
+    }
+
+    #[test]
+    fn gog_141_dedup_window_stays_bounded_over_100k_commands() {
+        let (h, c, o) = setup();
+        let s = o.observe().session;
+        h.set_dedup_window(256);
+        for i in 0..100_500u64 {
+            c.submit(cmd(i, s, ControlAction::SetSpeed(1.0)));
+            assert!(h.dedup_len() <= 256);
+        }
+        assert_eq!(h.dedup_len(), 256);
+    }
+
+    #[test]
+    fn gog_141_duplicate_in_window_rejected_and_old_id_expired() {
+        let (h, c, o) = setup();
+        let s = o.observe().session;
+        h.set_dedup_window(4);
+        for i in 1..=10u64 {
+            c.submit(cmd(i, s, ControlAction::SetSpeed(1.0)));
+        }
+        let dup = c.submit(cmd(10, s, ControlAction::SetSpeed(1.0)));
+        assert_eq!(
+            dup.outcome,
+            AckOutcome::Rejected {
+                reason: RejectReason::DuplicateCommandId
+            }
+        );
+        let old = c.submit(cmd(1, s, ControlAction::SetSpeed(1.0)));
+        assert_eq!(
+            old.outcome,
+            AckOutcome::Rejected {
+                reason: RejectReason::ExpiredCommandId
+            }
+        );
+        let fresh = c.submit(cmd(11, s, ControlAction::SetSpeed(1.0)));
+        assert_eq!(fresh.outcome, AckOutcome::Applied);
+    }
+
+    #[test]
+    fn gog_141_reset_clears_window_and_rejects_previous_generation() {
+        let (h, c, o) = setup();
+        let s = o.observe().session;
+        c.submit(cmd(1, s, ControlAction::Step));
+        c.submit(cmd(2, s, ControlAction::Reset));
+        assert_eq!(h.dedup_len(), 0);
+        let stale = c.submit(cmd(3, s, ControlAction::Step));
+        assert!(matches!(
+            stale.outcome,
+            AckOutcome::Rejected {
+                reason: RejectReason::StaleSession { .. }
+            }
+        ));
+        let s2 = o.observe().session;
+        assert_eq!(s2.generation, s.generation + 1);
+        assert_eq!(
+            c.submit(cmd(1, s2, ControlAction::Step)).outcome,
+            AckOutcome::Applied
+        );
+        assert_eq!(
+            c.submit(cmd(1, s2, ControlAction::Step)).outcome,
+            AckOutcome::Rejected {
+                reason: RejectReason::DuplicateCommandId
+            }
+        );
     }
 }

@@ -13,6 +13,21 @@ synthetic fixture so the whole pipeline runs in CI without any ROM.
   in `NOT_RUN: backend_unavailable`. The command never claims a level was completed
   unless it is the synthetic fixture (`fixture_goal_reached`).
 
+## Fixture vs real ROM
+
+| Mode | What runs | Status | Exit |
+|---|---|---|---|
+| `--fixture` | `SyntheticPlatformer` (original code, not Mario, no ROM, no emulation) | supported; output says "synthetic fixture, not Mario" | 0 |
+| `--rom` (hash in known list) | nothing: real emulation backend not integrated | NOT_RUN (`backend_unavailable`) | 3 |
+| no `--rom`/`--fixture` | nothing | NOT_RUN (`no_rom_provided`) | 3 |
+| `--rom` (unknown/unreadable) | nothing | typed error | 2 |
+
+`--help` prints usage (exit 0). No completeness is ever claimed for a real ROM.
+
+**Decision (GOG-151)**: no emulation adapter is integrated now. A future adapter
+is opt-in, lives behind `EmulatorPort`, and must come with a legal test (user-supplied
+ROM only) or remain NOT_RUN. No emulator is implemented in this crate.
+
 ## Bring your own ROM
 No ROM or BIOS is distributed and none may be added to the repo. Supply your own
 legally obtained dump by path:

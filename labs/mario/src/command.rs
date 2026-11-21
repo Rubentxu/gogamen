@@ -12,6 +12,19 @@ pub const EXIT_ERROR: i32 = 2;
 /// NOT_RUN is deliberately non-zero so scripts cannot mistake it for a pass.
 pub const EXIT_NOT_RUN: i32 = 3;
 
+/// Stated on every real-ROM path: the emulation backend is not integrated.
+pub const NO_BACKEND_NOTICE: &str =
+    "real emulation backend is not integrated; no level was run and no completion is claimed";
+
+/// `--help` text (exit 0). Distinguishes fixture from real ROM support.
+pub const USAGE: &str = "usage: mario_run [--help] [--rom PATH] [--known FILE] [--fixture] [--seed N]
+  --fixture   run the synthetic fixture (synthetic fixture, not Mario; not a real ROM; no emulation). Exit 0.
+  --rom PATH  verify a user-supplied ROM by SHA-256 against the known list. The real emulation
+              backend is not integrated: a verified ROM ends in NOT_RUN (exit 3), no completion is claimed.
+  --known F   known-hash list (default: known_roms.conf)
+  --seed N    fixture seed
+exit codes: 0 ok (fixture/help), 2 typed error, 3 NOT_RUN";
+
 /// Run the command; appends human output to `out` and returns the exit code.
 pub fn run(args: &[String], out: &mut String) -> i32 {
     let mut rom: Option<PathBuf> = None;
@@ -21,6 +34,10 @@ pub fn run(args: &[String], out: &mut String) -> i32 {
     let mut it = args.iter();
     while let Some(a) = it.next() {
         match a.as_str() {
+            "--help" | "-h" => {
+                let _ = writeln!(out, "{USAGE}");
+                return EXIT_OK;
+            }
             "--fixture" => fixture = true,
             "--rom" => rom = it.next().map(PathBuf::from),
             "--known" => {
@@ -36,10 +53,7 @@ pub fn run(args: &[String], out: &mut String) -> i32 {
                 }
             },
             other => {
-                let _ = writeln!(
-                    out,
-                    "ERROR: unknown argument '{other}'\nusage: mario_run [--rom PATH] [--known FILE] [--fixture] [--seed N]"
-                );
+                let _ = writeln!(out, "ERROR: unknown argument '{other}'\n{USAGE}");
                 return EXIT_ERROR;
             }
         }
@@ -50,7 +64,7 @@ pub fn run(args: &[String], out: &mut String) -> i32 {
     let Some(rom) = rom else {
         let _ = writeln!(
             out,
-            "NOT_RUN: {}\nno level was run; no completion is claimed. Pass --rom <your ROM> or --fixture ({SYNTHETIC_LABEL}).",
+            "NOT_RUN: {}\n{NO_BACKEND_NOTICE}. Pass --rom <your ROM> or --fixture ({SYNTHETIC_LABEL}).",
             NotRunReason::NoRomProvided
         );
         return EXIT_NOT_RUN;
@@ -66,10 +80,7 @@ pub fn run(args: &[String], out: &mut String) -> i32 {
                 label: v.label,
                 sha256: v.sha256,
             };
-            let _ = writeln!(
-                out,
-                "NOT_RUN: {reason}\nno level was run; no completion is claimed."
-            );
+            let _ = writeln!(out, "NOT_RUN: {reason}\n{NO_BACKEND_NOTICE}.");
             EXIT_NOT_RUN
         }
     }
@@ -90,7 +101,7 @@ fn run_fixture(seed: u64, out: &mut String) -> i32 {
     };
     let _ = writeln!(
         out,
-        "FIXTURE RUN ({SYNTHETIC_LABEL}); seed={seed}; this is NOT a Mario result"
+        "FIXTURE RUN ({SYNTHETIC_LABEL}); seed={seed}; this is NOT a Mario result, NOT a real ROM, and no emulation backend is involved"
     );
     let rows = [
         run_episode(
