@@ -53,6 +53,8 @@
 pub mod conformance;
 pub mod extensions;
 pub mod lab;
+pub mod metric_kit;
+pub mod pocket_kit;
 pub mod prelude;
 pub mod runtime;
 pub mod spec;

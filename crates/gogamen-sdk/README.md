@@ -35,3 +35,27 @@ ratio of ~1300x is an upper bound dominated by per-call instantiation, not by Wa
 instruction speed). **No hard real-time guarantee is made**: fuel bounds executed Wasm
 instructions deterministically, not wall-clock time; compile/instantiate latency varies.
 Do not use for deadline-critical paths.
+
+## Metric invariants kit for third-party future-entropy metrics (GOG-191)
+
+`gogamen_sdk::metric_kit` publishes the DEM-002 anti-artifact controls (relabel invariance,
+bounds, zero on deterministic worlds, no gain from duplication, mixing monotonicity, seed
+determinism) as a std-only kit. A metric `Fn(&MetricInput, seed) -> Result<f64, String>` is
+submitted with one call and the report includes the shrunk minimal counterexample, the kit
+version and an FNV-1a content hash.
+
+```rust
+use gogamen_sdk::metric_kit::{KitConfig, run_metric_kit};
+let report = run_metric_kit("mine", &mut my_metric, &KitConfig::default());
+print!("{}", report.render());
+```
+
+- Rust example: `cargo run -p gogamen-example-third-party --offline --example metric_kit`
+  (metrics in `labs/third_party_example/src/metric.rs`; the SDK does not depend on it).
+- Any language, one command, line protocol `GOGAMEN-METRIC/1` (`EVAL <seed> <label>:<p> ...` ->
+  `OK <value>` | `ERR <msg>`), e.g. Python:
+  `gogamen metric-kit -- python3 -I labs/third_party_example/examples/metric_stdio.py [--broken]`
+  (exit code 2 when an invariant fails).
+- Tests: `cargo test -p gogamen-sdk --offline external_metric_kit`.
+
+Limits: small finite distributions (<= 6 states); it falsifies, it does not prove correctness.
