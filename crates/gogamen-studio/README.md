@@ -333,6 +333,49 @@ alternative. Never a physical rewind and never an external effect.
   `project_counterfactual_scene` is a pure projector (textual guard test: no dynamics/model/guard in render code).
 - Run: `cargo run -p gogamen-studio --offline --example counterfactual_svg -- 3 4 42 > /tmp/cf.svg`.
 
+## Timeline widget: control bits and decisive moments (GOG-202)
+
+`timeline_widget` is the visual layer over the read-only data export of `decisive_timeline`
+(`timeline_rows`, `timeline_lines`, `open_counterfactual_at`). It does not simulate, plan or write:
+the `Recording` is borrowed and the counterfactual debugger runs through the existing
+`open_counterfactual_at`.
+
+- `TimelineLayout::of(rows)` lays out one row per `DecisiveEvent`: tick axis, control-bit magnitude
+  bars (proportional to each row's bits), decisive-moment markers and labels; `TimelineWidget::marks`
+  turns the layout into pure draw marks.
+- `TimelineWidget::select_tick` opens the debugger only on decisive rows (non-decisive rows just move
+  the selection) and keeps the resulting `CounterfactualView`, whose `counterfactual_lines` are painted
+  in the detail area. `CounterfactualChoice` carries the alternative action and horizon from the caller.
+- `timeline_ui` (feature `window`) paints the marks with egui and forwards clicks to the state machine;
+  without the feature the layout/state machine are still compiled and tested.
+- Tests build the fixture from a **real FMC run**: the engine recording is replayed onto the real
+  `GridWorldModel`, a real `FmcPlanner` (walker capture, horizon 8) plans at every recorded tick, and
+  `DecisiveTimeline::build` derives the marks and control bits from that trace (no synthetic events).
+  A headless `egui::Context::run_ui` pass checks the emitted shapes/labels and a programmatic click on a
+  decisive row; the recording hash (`RecordingId`) is asserted identical before and after.
+- Run: `cargo test -p gogamen-studio --offline --lib timeline_widget` and
+  `cargo test -p gogamen-studio --offline --features window --lib timeline_widget`.
+
+## Emergence view adapters and panel (GOG-177, GOG-205)
+
+`emergence_view` builds `DecisionRecord`s from the real hypothesis/model sources and
+`emergence_ui` draws them with the shared tick-row painter (no second data layer, no new renderer).
+
+- Adapters: `DecisionRecord::from_learned_model` (typed `Scale` id/version, frozen
+  revision/checksum, step evidence), `from_conditional_effects` (gate result, clause literals as
+  predicates, applied-observation evidence, model revision/checksum, window Brier), `from_causal_revision`
+  (current revision, one predicate per region context, covered samples, rejected-candidate note) and
+  `from_predicate_invention` (adopted predicates, holdout Brier, training evidence, revisor revision).
+  `ModelRef::checksum` is a `Known` value: sources that publish no checksum (`ModelRevision`)
+  render `revN/unknown` instead of borrowing another hash.
+- `emergence_ui::EmergenceWidget` places one row per decision on `TimelineLayout::of_marks`
+  (evidence bars, hypothesis markers, tick axis) and paints its `TimelineMark`s through
+  `timeline_widget::paint_timeline`, the same renderer as GOG-202. Selecting a row rebuilds that
+  record's `DecisionView` against the borrowed recording and shows `DecisionView::lines` plus
+  `PolicyComparison::lines` when exactly two policies are loaded.
+- Run: `cargo test -p gogamen-studio --offline --lib emergence` and
+  `cargo test -p gogamen-studio --offline --lib --features window emergence`.
+
 ## Arena synchronized views (GOG-101)
 
 `arena_view` compares two `Recording`s (GOG-94) side by side through one shared viewport and one logical tick
