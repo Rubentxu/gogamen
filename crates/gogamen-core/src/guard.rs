@@ -56,6 +56,8 @@ pub enum GuardRejectionReason {
     },
     /// El deadline monotónico (`expires_at`) de la propuesta fue alcanzado o superado.
     DeadlineExpired,
+    /// The proposal's relative TTL overflowed the monotonic clock, so no valid deadline exists (fail-closed).
+    DeadlineOverflow,
     /// El fallback explícito configurado en [`SafeFallbackPolicy`] es inválido para el [`ActionSpace`].
     InvalidFallback(DomainError),
     /// El fallback explícito configurado en [`SafeFallbackPolicy`] incumple la precondición del dominio.
@@ -92,6 +94,10 @@ impl fmt::Display for GuardRejectionReason {
                 "inconsistent proposal tick: proposal {proposal_tick} is ahead of current {current_tick}"
             ),
             Self::DeadlineExpired => write!(f, "action proposal monotonic deadline expired"),
+            Self::DeadlineOverflow => write!(
+                f,
+                "action proposal ttl overflowed the monotonic clock; no valid deadline"
+            ),
             Self::InvalidFallback(err) => write!(f, "explicit fallback action is invalid: {err}"),
             Self::FallbackPreconditionFailed { reason } => {
                 write!(f, "explicit fallback failed domain precondition: {reason}")
@@ -110,6 +116,7 @@ impl Error for GuardRejectionReason {
             | Self::StaleProposal { .. }
             | Self::FutureProposalTick { .. }
             | Self::DeadlineExpired
+            | Self::DeadlineOverflow
             | Self::FallbackPreconditionFailed { .. } => None,
         }
     }
@@ -125,6 +132,8 @@ pub struct ActionProposal {
     proposal_tick: Tick,
     max_age_ticks: Option<u64>,
     expires_at: Option<Instant>,
+    /// Set when `with_ttl` overflowed; the guard rejects such proposals (fail-closed).
+    ttl_overflow: bool,
 }
 
 impl ActionProposal {
@@ -136,6 +145,7 @@ impl ActionProposal {
             proposal_tick,
             max_age_ticks: None,
             expires_at: None,
+            ttl_overflow: false,
         }
     }
 
@@ -146,6 +156,7 @@ impl ActionProposal {
             proposal_tick,
             max_age_ticks: None,
             expires_at: None,
+            ttl_overflow: false,
         }
     }
 
@@ -156,6 +167,7 @@ impl ActionProposal {
             proposal_tick,
             max_age_ticks: None,
             expires_at: None,
+            ttl_overflow: false,
         }
     }
 
@@ -172,8 +184,19 @@ impl ActionProposal {
     }
 
     /// Configura un tiempo de vida relativo (`ttl`) a partir del instante `now`.
+    ///
+    /// Fail-closed (GOG-136): if `now + ttl` overflows, the proposal is marked as
+    /// `ttl_overflow` (any previous deadline is kept) and [`ActionGuard::evaluate`]
+    /// rejects it with [`GuardRejectionReason::DeadlineOverflow`] instead of treating
+    /// the missing deadline as "never expires".
     pub fn with_ttl(mut self, now: Instant, ttl: Duration) -> Self {
-        self.expires_at = now.checked_add(ttl);
+        match now.checked_add(ttl) {
+            Some(deadline) => {
+                self.expires_at = Some(deadline);
+                self.ttl_overflow = false;
+            }
+            None => self.ttl_overflow = true,
+        }
         self
     }
 
@@ -190,6 +213,11 @@ impl ActionProposal {
     /// Devuelve la antigüedad máxima en ticks configurada, si existe.
     pub const fn max_age_ticks(&self) -> Option<u64> {
         self.max_age_ticks
+    }
+
+    /// Indicates whether a relative TTL overflowed in [`ActionProposal::with_ttl`].
+    pub const fn ttl_overflowed(&self) -> bool {
+        self.ttl_overflow
     }
 
     /// Devuelve el deadline monotónico configurado, si existe.
@@ -434,6 +462,10 @@ impl<P: DomainPrecondition> ActionGuard<P> {
             }
         }
 
+        if proposal.ttl_overflowed() {
+            return self.resolve_fallback(GuardRejectionReason::DeadlineOverflow, ctx);
+        }
+
         if let Some(expires_at) = proposal.expires_at()
             && ctx.now_instant() >= expires_at
         {
@@ -549,6 +581,49 @@ mod tests {
         assert_eq!(
             guard.evaluate(&fresh_proposal, &ctx),
             GuardDecision::Allow(valid_action)
+        );
+    }
+
+    #[test]
+    fn gog_136_ttl_overflow_is_rejected_and_valid_ttl_still_expires() {
+        let space = ActionSpace::discrete(3).unwrap();
+        let action = Action::discrete_in_space(1, &space).unwrap();
+        let now = Instant::now();
+        let guard = ActionGuard::new(SafeFallbackPolicy::NoOp);
+        let ctx = GuardContext::new(&space, Tick::new(5), now, Terminal::Ongoing);
+
+        let overflowed =
+            ActionProposal::authorized(action.clone(), Tick::new(5)).with_ttl(now, Duration::MAX);
+        assert!(overflowed.ttl_overflowed());
+        assert_eq!(overflowed.expires_at(), None);
+        let guard_reject = ActionGuard::new(SafeFallbackPolicy::RejectOnly);
+        assert_eq!(
+            guard_reject.evaluate(&overflowed, &ctx),
+            GuardDecision::Reject(GuardRejectionReason::DeadlineOverflow)
+        );
+        assert!(
+            guard.evaluate(&overflowed, &ctx).action().is_none(),
+            "overflowed ttl must never allow an action"
+        );
+        assert!(
+            !GuardRejectionReason::DeadlineOverflow
+                .to_string()
+                .is_empty()
+        );
+
+        let valid = ActionProposal::authorized(action.clone(), Tick::new(5))
+            .with_ttl(now, Duration::from_secs(10));
+        assert!(!valid.ttl_overflowed());
+        assert_eq!(guard.evaluate(&valid, &ctx), GuardDecision::Allow(action));
+        let later = GuardContext::new(
+            &space,
+            Tick::new(5),
+            now + Duration::from_secs(10),
+            Terminal::Ongoing,
+        );
+        assert_eq!(
+            guard_reject.evaluate(&valid, &later),
+            GuardDecision::Reject(GuardRejectionReason::DeadlineExpired)
         );
     }
 

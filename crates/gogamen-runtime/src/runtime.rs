@@ -324,7 +324,11 @@ where
                 PlanStatus::Cancelled => Some(RejectionCause::PlanCancelled),
                 PlanStatus::NoValidAction => Some(RejectionCause::PlanNoValidAction),
                 PlanStatus::Completed => {
-                    if proposal.expires_at().is_some_and(|exp| now >= exp) {
+                    if proposal.ttl_overflowed() {
+                        Some(RejectionCause::Guard(
+                            GuardRejectionReason::DeadlineOverflow,
+                        ))
+                    } else if proposal.expires_at().is_some_and(|exp| now >= exp) {
                         Some(RejectionCause::Guard(GuardRejectionReason::DeadlineExpired))
                     } else if proposal.authorized_action().is_none() {
                         Some(RejectionCause::Guard(GuardRejectionReason::Unauthorized))

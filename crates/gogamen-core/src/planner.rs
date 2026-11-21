@@ -48,9 +48,14 @@ impl PlanBudget {
     }
 
     /// Crea un presupuesto con máximo de transiciones y un tiempo límite relativo a `Instant::now()`.
+    ///
+    /// Fail-closed (GOG-136): if `now + timeout` overflows the monotonic clock, the
+    /// deadline is set to `now` so the budget is already expired, rather than
+    /// dropping the deadline (which would mean "never expires").
     pub fn with_timeout(max_transitions: usize, timeout: Duration) -> Self {
-        let deadline = Instant::now().checked_add(timeout);
-        Self::new(max_transitions, deadline)
+        let now = Instant::now();
+        let deadline = now.checked_add(timeout).unwrap_or(now);
+        Self::new(max_transitions, Some(deadline))
     }
 
     /// Devuelve el máximo de transiciones simuladas permitidas.
@@ -488,6 +493,17 @@ pub trait Planner {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn gog_136_with_timeout_overflow_is_fail_closed_expired() {
+        let budget = PlanBudget::with_timeout(5, Duration::MAX);
+        assert!(budget.deadline().is_some());
+        assert!(budget.is_deadline_expired());
+        // Transition limit is independent of the deadline.
+        assert_eq!(budget.max_transitions(), 5);
+        let ok = PlanBudget::with_timeout(5, Duration::from_secs(3600));
+        assert!(!ok.is_deadline_expired());
+    }
+
     use super::*;
     use crate::action::DiscreteAction;
     use crate::domain::Terminal;
