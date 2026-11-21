@@ -1,4 +1,7 @@
+mod demo;
 mod protocol;
+mod receipt;
+mod report;
 
 use std::env;
 use std::fs;
@@ -36,7 +39,7 @@ fn read_bounded(path: &str, max_bytes: usize) -> Result<String, std::io::Error> 
 
 fn help_text() -> String {
     format!(
-        "{name} {version}\nUso: {name} [--version | --help | run-1d [--ticks N] [--seed S] | run-grid [--ticks N] [--seed S] [--partial-obs] | run-grid-spec --json-file <path> [--ticks N] [--seed S] | run-language-world [--seed S] | run-spec [--fixture | --json-file <path>] [--ticks N] [--seed S] | compile-artifact [--fixture | --json-file <path>] --out <path> | inspect-artifact --artifact-file <path> | run-artifact --artifact-file <path> [--ticks N] [--seed S] | serve-protocol]\n",
+        "{name} {version}\nUso: {name} [--version | --help | run-1d [--ticks N] [--seed S] | run-grid [--ticks N] [--seed S] [--partial-obs] | run-grid-spec --json-file <path> [--ticks N] [--seed S] | run-language-world [--seed S] | run-spec [--fixture | --json-file <path>] [--ticks N] [--seed S] | compile-artifact [--fixture | --json-file <path>] --out <path> | inspect-artifact --artifact-file <path> | run-artifact --artifact-file <path> [--ticks N] [--seed S] | run-experiment --out-dir <dir> [--track rectangular|chicane] [--no-prereg] [--demo grid-transfer [--dsl-file <path>]] | verify-receipt --receipt-file <path> | serve-protocol | metric-kit [--cases N] [--seed S] -- <cmd> [args...]]\n",
         name = gogamen_core::project_name(),
         version = gogamen_core::core_version(),
     )
@@ -512,12 +515,169 @@ fn run_artifact_command(args: &[String]) -> Result<String, String> {
     ))
 }
 
+fn run_experiment_command(args: &[String]) -> Result<String, String> {
+    let mut out_dir: Option<String> = None;
+    let mut track = "rectangular".to_owned();
+    let mut preregister = true;
+    let mut demo_mode: Option<String> = None;
+    let mut dsl_file: Option<String> = None;
+    let mut it = args.iter();
+    while let Some(arg) = it.next() {
+        match arg.as_str() {
+            "--out-dir" => {
+                out_dir = Some(it.next().ok_or("falta valor para --out-dir")?.clone());
+            }
+            "--track" => track = it.next().ok_or("falta valor para --track")?.clone(),
+            "--no-prereg" => preregister = false,
+            "--demo" => demo_mode = Some(it.next().ok_or("falta valor para --demo")?.clone()),
+            "--dsl-file" => {
+                dsl_file = Some(it.next().ok_or("falta valor para --dsl-file")?.clone())
+            }
+            other => return Err(format!("opción desconocida para run-experiment: {other}")),
+        }
+    }
+    let out_dir = out_dir.ok_or_else(|| "falta --out-dir <dir> para run-experiment".to_string())?;
+    if let Some(mode) = demo_mode {
+        return run_demo_command(&mode, dsl_file.as_deref(), &out_dir);
+    }
+    if dsl_file.is_some() {
+        return Err("--dsl-file solo se admite con --demo".to_string());
+    }
+    let spec = receipt::ExperimentSpec::kart_default(&track);
+    let outcome = receipt::run_experiment(&spec, preregister)?;
+    fs::create_dir_all(&out_dir).map_err(|e| format!("cannot create '{out_dir}': {e}"))?;
+    let receipt_path = format!("{out_dir}/receipt.json");
+    let report_path = format!("{out_dir}/report.html");
+    fs::write(&receipt_path, outcome.receipt_text())
+        .map_err(|e| format!("cannot write '{receipt_path}': {e}"))?;
+    fs::write(
+        &report_path,
+        report::render_html(&outcome, outcome.receipt_hash()),
+    )
+    .map_err(|e| format!("cannot write '{report_path}': {e}"))?;
+    let counts = gogamen_arena::count_verdicts(&outcome.verdicts);
+    Ok(format!(
+        "gogamen run-experiment\n  example: {}\n  spec_hash: {:016x}\n  preregistered: {}\n  report_hash: {:016x}\n  receipt_hash: {:016x}\n  verdicts: SUPPORTED={} REFUTED={} INCONCLUSIVE={}\n  receipt: {receipt_path}\n  report: {report_path}\n",
+        outcome.spec.example_id,
+        outcome.spec_hash,
+        outcome.preregistered,
+        outcome.report_hash,
+        outcome.receipt_hash(),
+        counts.supported,
+        counts.refuted,
+        counts.inconclusive
+    ))
+}
+
+fn run_demo_command(mode: &str, dsl_file: Option<&str>, out_dir: &str) -> Result<String, String> {
+    if mode != "grid-transfer" {
+        return Err(format!(
+            "--demo desconocido: {mode} (soportado: grid-transfer)"
+        ));
+    }
+    let (text, source) = match dsl_file {
+        Some(p) => (
+            read_bounded(p, DEFAULT_MAX_INPUT_BYTES)
+                .map_err(|e| format!("error leyendo --dsl-file '{p}': {e}"))?,
+            p.to_owned(),
+        ),
+        None => (
+            demo::DEFAULT_DSL_SPEC.to_owned(),
+            demo::DEFAULT_DSL_SOURCE.to_owned(),
+        ),
+    };
+    let outcome = demo::run_demo(&text, &source)?;
+    fs::create_dir_all(out_dir).map_err(|e| format!("cannot create '{out_dir}': {e}"))?;
+    let receipt_path = format!("{out_dir}/receipt.json");
+    let report_path = format!("{out_dir}/report.html");
+    fs::write(&receipt_path, outcome.receipt_text())
+        .map_err(|e| format!("cannot write '{receipt_path}': {e}"))?;
+    fs::write(&report_path, outcome.render_html())
+        .map_err(|e| format!("cannot write '{report_path}': {e}"))?;
+    let mut s = format!(
+        "gogamen run-experiment --demo {mode}\n  example: {}\n  spec_hash: {:016x}\n  receipt_hash: {:016x}\n  episodes: {}\n  verdict: {}\n",
+        demo::DEMO_EXAMPLE_ID,
+        outcome.spec_hash,
+        outcome.receipt_hash(),
+        outcome.episodes,
+        outcome.verdict
+    );
+    for l in &outcome.summary {
+        s.push_str(&format!("  {l}\n"));
+    }
+    s.push_str(&format!(
+        "  receipt: {receipt_path}\n  report: {report_path}\n"
+    ));
+    Ok(s)
+}
+
+fn verify_receipt_command(args: &[String]) -> Result<String, String> {
+    let mut path: Option<String> = None;
+    let mut it = args.iter();
+    while let Some(arg) = it.next() {
+        match arg.as_str() {
+            "--receipt-file" => {
+                path = Some(it.next().ok_or("falta valor para --receipt-file")?.clone());
+            }
+            other => return Err(format!("opción desconocida para verify-receipt: {other}")),
+        }
+    }
+    let path = path.ok_or_else(|| "falta --receipt-file <path> para verify-receipt".to_string())?;
+    let text = read_bounded(&path, receipt::MAX_RECEIPT_BYTES)
+        .map_err(|e| format!("cannot read receipt '{path}': {e}"))?;
+    if demo::is_demo_receipt(&text) {
+        let v = demo::verify_demo_receipt(&text)
+            .map_err(|e| format!("receipt verification FAILED: {e}"))?;
+        return Ok(format!(
+            "gogamen verify-receipt\n  file: {path}\n  result: OK (reproduced by re-execution)\n  spec_hash: {:016x}\n  receipt_hash: {:016x}\n  episodes_reproduced: {}\n  verdict: {}\n",
+            v.spec_hash, v.receipt_hash, v.episodes, v.verdict
+        ));
+    }
+    let v =
+        receipt::verify_receipt(&text).map_err(|e| format!("receipt verification FAILED: {e}"))?;
+    Ok(format!(
+        "gogamen verify-receipt\n  file: {path}\n  result: OK (reproduced by re-execution)\n  spec_hash: {:016x}\n  report_hash: {:016x}\n  receipt_hash: {:016x}\n  runs_reproduced: {}\n",
+        v.spec_hash, v.report_hash, v.receipt_hash, v.runs_reproduced
+    ))
+}
+
 fn serve_protocol_command(args: &[String]) -> Result<String, String> {
     if let Some(other) = args.first() {
         return Err(format!("opción desconocida para serve-protocol: {other}"));
     }
     protocol::serve_stdio()?;
     Ok(String::new())
+}
+
+/// `metric-kit [--cases N] [--seed S] -- <cmd> [args...]` (GOG-191): somete una métrica externa
+/// (protocolo de línea GOGAMEN-METRIC/1) a los invariantes; sale con código 2 si alguno falla.
+fn metric_kit_command(args: &[String]) -> Result<String, String> {
+    use gogamen_sdk::metric_kit::{KitConfig, ProcessMetric, run_metric_kit};
+    let mut cfg = KitConfig::default();
+    let mut idx = 0;
+    while idx < args.len() && args[idx] != "--" {
+        let val = args
+            .get(idx + 1)
+            .ok_or_else(|| format!("falta valor para {}", args[idx]))?;
+        match args[idx].as_str() {
+            "--cases" => cfg.cases = val.parse().map_err(|e| format!("--cases inválido: {e}"))?,
+            "--seed" => cfg.seed = val.parse().map_err(|e| format!("--seed inválido: {e}"))?,
+            other => return Err(format!("argumento desconocido: {other}")),
+        }
+        idx += 2;
+    }
+    let cmd = args.get(idx + 1..).unwrap_or(&[]);
+    let Some((program, rest)) = cmd.split_first() else {
+        return Err("uso: metric-kit [--cases N] [--seed S] -- <cmd> [args...]".to_string());
+    };
+    let mut metric = ProcessMetric::spawn(program, rest, std::time::Duration::from_secs(10))
+        .map_err(|e| format!("no se pudo lanzar {program}: {e}"))?;
+    let report = run_metric_kit(&cmd.join(" "), &mut metric, &cfg);
+    if report.passed() {
+        Ok(report.render())
+    } else {
+        Err(report.render())
+    }
 }
 
 fn dispatch(args: &[String]) -> Result<String, String> {
@@ -531,7 +691,10 @@ fn dispatch(args: &[String]) -> Result<String, String> {
         Some("compile-artifact") => compile_artifact_command(&args[2..]),
         Some("inspect-artifact") => inspect_artifact_command(&args[2..]),
         Some("run-artifact") => run_artifact_command(&args[2..]),
+        Some("run-experiment") => run_experiment_command(&args[2..]),
+        Some("verify-receipt") => verify_receipt_command(&args[2..]),
         Some("serve-protocol") => serve_protocol_command(&args[2..]),
+        Some("metric-kit") => metric_kit_command(&args[2..]),
         _ => Ok(help_text()),
     }
 }

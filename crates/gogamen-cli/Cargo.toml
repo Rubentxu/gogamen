@@ -9,8 +9,11 @@ name = "gogamen"
 path = "src/main.rs"
 
 [dependencies]
+gogamen-arena = { path = "../gogamen-arena" }
 gogamen-compiler = { path = "../gogamen-compiler" }
 gogamen-core = { path = "../gogamen-core" }
 gogamen-lab-grid = { path = "../../labs/grid" }
+gogamen-lab-racing = { path = "../../labs/racing" }
 gogamen-runtime = { path = "../gogamen-runtime" }
+gogamen-sdk = { path = "../gogamen-sdk" }
 gogamen-spec = { path = "../gogamen-spec" }
