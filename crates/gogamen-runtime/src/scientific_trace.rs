@@ -10,6 +10,14 @@
 //!   [`DecisionAction`], [`StreamSeeds`], [`StreamRevision`] y
 //!   [`CheckpointRef`] sobre [`SimulationSnapshot`], con serialización y
 //!   deserialización determinista bit-a-bit en `std` puro.
+//! - Trailers opcionales del manifiesto que fijan la predicción antes de ejecutar:
+//!   hash de hipótesis pre-registradas (`<0xA5>`) y hash del libro de dotación
+//!   (GOG-199, `<0xB7>`). Solo entran en el checksum y en los bytes cuando están
+//!   presentes, así que los manifiestos históricos siguen siendo idénticos.
+//! - Trailer opcional de medición del principio de selección
+//!   ([`SelectionMeasurementRecord`], GOG-198): principio, modalidad del proxy de libertad,
+//!   horizonte, escala, walkers viables y colisiones por tick. Solo se escribe cuando está
+//!   presente; los registros sin él conservan sus bytes y checksums históricos.
 //! - Política de campos sensibles ([`SensitiveFieldPolicy`]) que rechaza o
 //!   redacta credenciales y secretos antes de persistir checkpoints o manifiestos.
 //! - Escritura acotada fuera del bucle de control crítico mediante
@@ -29,9 +37,9 @@ use std::sync::{Arc, Condvar, Mutex};
 use std::thread::{self, JoinHandle};
 
 use gogamen_core::{
-    Action, DeterminismMetadata, DiscreteAction, GuardDecision, MasterSeed, Observation,
-    PlanStatus, RunId, SimDuration, SimulationSnapshot, StreamRevision, Terminal, TerminalReason,
-    Tick, TraceHasher,
+    Action, DeterminismMetadata, DiscreteAction, EntropyProxyKind, GuardDecision, MasterSeed,
+    Observation, PlanStatus, RunId, SelectionPrinciple, SimDuration, SimulationSnapshot,
+    StreamRevision, Terminal, TerminalReason, Tick, TraceHasher,
 };
 
 use crate::trace::TickTraceEntry;
@@ -41,6 +49,14 @@ pub const SCIENTIFIC_TRACE_VERSION: u32 = 1;
 
 const TRACE_MAGIC: &[u8; 8] = b"GOGTRACE";
 const MANIFEST_MAGIC: &[u8; 8] = b"GOGMANIF";
+/// Tag of the optional hypotheses-hash trailer/checksum section of the manifest.
+const HYPOTHESES_TAG: u8 = 0xA5;
+/// Tag of the optional endowment-book hash trailer/checksum section of the manifest (GOG-199).
+const ENDOWMENT_TAG: u8 = 0xB7;
+/// Tag of the optional control-bits trailer of a record payload (GOG-180).
+const CONTROL_BITS_TAG: u8 = 0xC8;
+/// Tag of the optional selection-principle measurement trailer of a record payload (GOG-198).
+const SELECTION_MEASUREMENT_TAG: u8 = 0xC9;
 const ARCHIVE_MAGIC: &[u8; 8] = b"GOGARCHV";
 const REDACTED_VALUE: &str = "[REDACTED]";
 
@@ -229,6 +245,10 @@ pub struct TraceManifestConfig {
     pub model_id: String,
     /// Semilla maestra determinista de la ejecución.
     pub seed: MasterSeed,
+    /// Hash of the pre-registered hypotheses, fixed before execution (`None` if none registered).
+    pub hypotheses_hash: Option<u64>,
+    /// Hash of the endowment book ("libro de dotación") that frames the run (`None` if absent).
+    pub endowment_hash: Option<u64>,
 }
 
 impl TraceManifestConfig {
@@ -246,7 +266,23 @@ impl TraceManifestConfig {
             spec_id: spec_id.into(),
             model_id: model_id.into(),
             seed,
+            hypotheses_hash: None,
+            endowment_hash: None,
         }
+    }
+
+    /// Records the pre-registered hypotheses hash (see `gogamen_spec::hypotheses_hash`).
+    #[must_use]
+    pub fn with_hypotheses_hash(mut self, hash: Option<u64>) -> Self {
+        self.hypotheses_hash = hash;
+        self
+    }
+
+    /// Records the endowment-book hash (see `gogamen_spec::EndowmentBook::hash`).
+    #[must_use]
+    pub fn with_endowment_hash(mut self, hash: Option<u64>) -> Self {
+        self.endowment_hash = hash;
+        self
     }
 }
 
@@ -273,6 +309,12 @@ pub struct TraceManifest {
     pub dropped_records: u64,
     /// Lista cronológica de huecos registrados.
     pub gaps: Vec<TraceGap>,
+    /// Hash of the hypotheses pre-registered before execution; `None` means none registered.
+    /// Covered by the checksum only when present, so legacy manifests keep their checksum.
+    pub hypotheses_hash: Option<u64>,
+    /// Hash del libro de dotación que enmarca la ejecución; `None` si no se declaró.
+    /// Sólo entra en el checksum cuando está presente (manifiestos históricos intactos).
+    pub endowment_hash: Option<u64>,
     /// Checksum FNV-1a de integridad del manifiesto.
     pub checksum: u64,
 }
@@ -291,6 +333,8 @@ impl TraceManifest {
             total_records: 0,
             dropped_records: 0,
             gaps: Vec::new(),
+            hypotheses_hash: config.hypotheses_hash,
+            endowment_hash: config.endowment_hash,
             checksum: 0,
         };
         manifest.recompute_checksum();
@@ -322,6 +366,14 @@ impl TraceManifest {
                     hasher.write_str(msg);
                 }
             }
+        }
+        if let Some(hash) = self.hypotheses_hash {
+            hasher.write_u8(HYPOTHESES_TAG);
+            hasher.write_u64(hash);
+        }
+        if let Some(hash) = self.endowment_hash {
+            hasher.write_u8(ENDOWMENT_TAG);
+            hasher.write_u64(hash);
         }
         hasher.finish()
     }
@@ -416,6 +468,16 @@ impl TraceManifest {
             }
         }
         write_u64(&mut out, self.checksum);
+        // Optional trailers after the checksum, in fixed tag order. Legacy manifests (no
+        // hypotheses, no endowment) stay byte-identical.
+        if let Some(hash) = self.hypotheses_hash {
+            write_u8(&mut out, HYPOTHESES_TAG);
+            write_u64(&mut out, hash);
+        }
+        if let Some(hash) = self.endowment_hash {
+            write_u8(&mut out, ENDOWMENT_TAG);
+            write_u64(&mut out, hash);
+        }
         out
     }
 
@@ -465,7 +527,29 @@ impl TraceManifest {
             });
         }
         let checksum = reader.read_u64()?;
-        reader.ensure_eof()?;
+        let mut hypotheses_hash = None;
+        let mut endowment_hash = None;
+        while reader.remaining() > 0 {
+            let tag = reader.read_u8()?;
+            match tag {
+                HYPOTHESES_TAG if hypotheses_hash.is_none() => {
+                    hypotheses_hash = Some(reader.read_u64()?);
+                }
+                ENDOWMENT_TAG if endowment_hash.is_none() => {
+                    endowment_hash = Some(reader.read_u64()?);
+                }
+                HYPOTHESES_TAG | ENDOWMENT_TAG => {
+                    return Err(ScientificTraceError::CorruptedFormat(format!(
+                        "duplicate manifest trailer tag: {tag}"
+                    )));
+                }
+                other => {
+                    return Err(ScientificTraceError::CorruptedFormat(format!(
+                        "unknown manifest trailer tag: {other}"
+                    )));
+                }
+            }
+        }
 
         let manifest = Self {
             version,
@@ -478,6 +562,8 @@ impl TraceManifest {
             total_records,
             dropped_records,
             gaps,
+            hypotheses_hash,
+            endowment_hash,
             checksum,
         };
         manifest.verify()?;
@@ -627,6 +713,36 @@ impl From<SimulationSnapshot> for CheckpointRef {
     }
 }
 
+/// Control bits `I(A0; Z)` (GOG-180) of one decision, with the scale and estimator versions
+/// that produced it. Optional in [`ScientificRecord`]: records without it keep their exact bytes.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ControlBitsRecord {
+    /// Bias-corrected control in bits (`gogamen_core::ControlBitsEstimate::control_corrected`).
+    pub value_bits: f64,
+    /// Scale (projection) label, e.g. the `BinSpec` label.
+    pub scale_label: String,
+    /// Scale version (major, minor).
+    pub scale_version: (u32, u32),
+    /// Estimator version (`gogamen_core::CONTROL_BITS_ESTIMATOR_VERSION`).
+    pub estimator_version: u32,
+}
+
+impl ControlBitsRecord {
+    /// Builds the record from an estimate.
+    pub fn from_estimate(e: &gogamen_core::ControlBitsEstimate) -> Self {
+        Self {
+            value_bits: e.control_corrected,
+            scale_label: e.scale_label.clone(),
+            scale_version: (e.scale_version.major(), e.scale_version.minor()),
+            estimator_version: e.estimator_version,
+        }
+    }
+
+    fn encoded_len(&self) -> usize {
+        1 + 8 + 8 + self.scale_label.len() + 4 + 4 + 4
+    }
+}
+
 /// Registro científico durable correspondiente a un paso o evento de replay.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ScientificRecord {
@@ -640,6 +756,85 @@ pub struct ScientificRecord {
     pub stream_seeds: StreamSeeds,
     /// Checkpoint opcional de replay para reanudar o bifurcar exactamente desde este punto.
     pub checkpoint: Option<CheckpointRef>,
+    /// Optional control bits of the decision. Encoded as a trailer after the checkpoint section
+    /// only when present, so existing traces keep identical bytes and checksums.
+    pub control_bits: Option<ControlBitsRecord>,
+    /// Optional selection-principle measurement (GOG-198): principle, proxy modality, horizon,
+    /// scale, viable walkers and collisions of the tick. Encoded as a second optional trailer only
+    /// when present; records without it keep their exact bytes and checksums.
+    pub selection_measurement: Option<SelectionMeasurementRecord>,
+}
+
+/// Medición por tick del principio de selección y del proxy de libertad (GOG-198).
+///
+/// Escribe en la traza científica **qué modalidad** (`FutureTrajectoryProxy` /
+/// `FinalStateProxy`) y **qué escala** se usaron para medir, además del horizonte, walkers
+/// viables y colisiones. Para [`SelectionPrinciple::Directed`] la modalidad es `None` porque no
+/// hay medición de libertad asociada.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SelectionMeasurementRecord {
+    /// Principio de selección que construyó la recompensa en el tick.
+    pub principle: SelectionPrinciple,
+    /// Modalidad del proxy de entropía (`None` si no se midió libertad futura).
+    pub modality: Option<EntropyProxyKind>,
+    /// Horizonte de rollout de la medición (pasos).
+    pub horizon: u32,
+    /// Escala de discretización (lado de celda en metros).
+    pub scale_m: f64,
+    /// Etiqueta del esquema de escala/bins.
+    pub scale_label: String,
+    /// Versión del esquema de escala/bins (mayor, menor).
+    pub scale_version: (u32, u32),
+    /// Walkers simulados en el tick.
+    pub walkers: u64,
+    /// Walkers viables (sin terminal de fallo).
+    pub viable_walkers: u64,
+    /// Walkers que chocaron o violaron un invariante.
+    pub collisions: u64,
+    /// Entropía empírica (bits) de los walkers viables en la modalidad indicada.
+    pub entropy_bits: f64,
+}
+
+impl SelectionMeasurementRecord {
+    fn encoded_len(&self) -> usize {
+        1 + 1 + 1 + 4 + 8 + 8 + self.scale_label.len() + 4 + 4 + 8 + 8 + 8 + 8
+    }
+}
+
+fn principle_tag(principle: SelectionPrinciple) -> u8 {
+    match principle {
+        SelectionPrinciple::Pure => 0,
+        SelectionPrinciple::Situated => 1,
+        SelectionPrinciple::Directed => 2,
+    }
+}
+
+fn principle_from_tag(tag: u8) -> Option<SelectionPrinciple> {
+    match tag {
+        0 => Some(SelectionPrinciple::Pure),
+        1 => Some(SelectionPrinciple::Situated),
+        2 => Some(SelectionPrinciple::Directed),
+        _ => None,
+    }
+}
+
+fn modality_tag(modality: Option<EntropyProxyKind>) -> u8 {
+    match modality {
+        None => 0,
+        Some(EntropyProxyKind::FutureTrajectoryProxy) => 1,
+        Some(EntropyProxyKind::FinalStateProxy) => 2,
+    }
+}
+
+fn modality_from_tag(tag: u8) -> Result<Option<EntropyProxyKind>, ScientificTraceError> {
+    match tag {
+        0 => Ok(None),
+        1 => Ok(Some(EntropyProxyKind::FutureTrajectoryProxy)),
+        2 => Ok(Some(EntropyProxyKind::FinalStateProxy)),
+        _ => Err(ScientificTraceError::CorruptedFormat(format!(
+            "unknown selection modality tag {tag:#x}"
+        ))),
+    }
 }
 
 impl ScientificRecord {
@@ -656,7 +851,26 @@ impl ScientificRecord {
             decision: DecisionAction::from_trace_entry(entry),
             stream_seeds,
             checkpoint,
+            control_bits: None,
+            selection_measurement: None,
         }
+    }
+
+    /// Attaches the control bits of this decision.
+    #[must_use]
+    pub fn with_control_bits(mut self, control_bits: Option<ControlBitsRecord>) -> Self {
+        self.control_bits = control_bits;
+        self
+    }
+
+    /// Attaches the selection-principle measurement of this tick (GOG-198).
+    #[must_use]
+    pub fn with_selection_measurement(
+        mut self,
+        measurement: Option<SelectionMeasurementRecord>,
+    ) -> Self {
+        self.selection_measurement = measurement;
+        self
     }
 
     /// Aplica `policy` al registro (incluyendo su [`CheckpointRef`] si existe) y
@@ -672,6 +886,8 @@ impl ScientificRecord {
             decision: self.decision.clone(),
             stream_seeds: self.stream_seeds.clone(),
             checkpoint,
+            control_bits: self.control_bits.clone(),
+            selection_measurement: self.selection_measurement.clone(),
         })
     }
 
@@ -733,6 +949,12 @@ impl ScientificRecord {
         for name in self.stream_seeds.derived.keys() {
             n += string(name) + 8;
         }
+        if let Some(cb) = &self.control_bits {
+            n += cb.encoded_len();
+        }
+        if let Some(m) = &self.selection_measurement {
+            n += m.encoded_len();
+        }
         n += 1; // checkpoint tag
         if let Some(cp) = checkpoint {
             let snap = &cp.snapshot;
@@ -769,6 +991,28 @@ impl ScientificRecord {
                 write_checkpoint(&mut out, cp);
             }
             None => write_u8(&mut out, 0),
+        }
+        if let Some(cb) = &self.control_bits {
+            write_u8(&mut out, CONTROL_BITS_TAG);
+            write_f64(&mut out, cb.value_bits);
+            write_string(&mut out, &cb.scale_label);
+            write_u32(&mut out, cb.scale_version.0);
+            write_u32(&mut out, cb.scale_version.1);
+            write_u32(&mut out, cb.estimator_version);
+        }
+        if let Some(m) = &self.selection_measurement {
+            write_u8(&mut out, SELECTION_MEASUREMENT_TAG);
+            write_u8(&mut out, principle_tag(m.principle));
+            write_u8(&mut out, modality_tag(m.modality));
+            write_u32(&mut out, m.horizon);
+            write_f64(&mut out, m.scale_m);
+            write_string(&mut out, &m.scale_label);
+            write_u32(&mut out, m.scale_version.0);
+            write_u32(&mut out, m.scale_version.1);
+            write_u64(&mut out, m.walkers);
+            write_u64(&mut out, m.viable_walkers);
+            write_u64(&mut out, m.collisions);
+            write_f64(&mut out, m.entropy_bits);
         }
 
         let written = out.len() - HEADER_LEN;
@@ -825,6 +1069,56 @@ impl ScientificRecord {
         } else {
             None
         };
+        let mut control_bits = None;
+        let mut selection_measurement = None;
+        while p.remaining() > 0 {
+            match p.read_u8()? {
+                CONTROL_BITS_TAG => {
+                    if control_bits.is_some() {
+                        return Err(ScientificTraceError::CorruptedFormat(
+                            "duplicate control-bits trailer".to_owned(),
+                        ));
+                    }
+                    control_bits = Some(ControlBitsRecord {
+                        value_bits: p.read_f64()?,
+                        scale_label: p.read_string()?,
+                        scale_version: (p.read_u32()?, p.read_u32()?),
+                        estimator_version: p.read_u32()?,
+                    });
+                }
+                SELECTION_MEASUREMENT_TAG => {
+                    if selection_measurement.is_some() {
+                        return Err(ScientificTraceError::CorruptedFormat(
+                            "duplicate selection-measurement trailer".to_owned(),
+                        ));
+                    }
+                    let principle_tag = p.read_u8()?;
+                    let principle = principle_from_tag(principle_tag).ok_or_else(|| {
+                        ScientificTraceError::CorruptedFormat(format!(
+                            "unknown selection principle tag {principle_tag:#x}"
+                        ))
+                    })?;
+                    let modality = modality_from_tag(p.read_u8()?)?;
+                    selection_measurement = Some(SelectionMeasurementRecord {
+                        principle,
+                        modality,
+                        horizon: p.read_u32()?,
+                        scale_m: p.read_f64()?,
+                        scale_label: p.read_string()?,
+                        scale_version: (p.read_u32()?, p.read_u32()?),
+                        walkers: p.read_u64()?,
+                        viable_walkers: p.read_u64()?,
+                        collisions: p.read_u64()?,
+                        entropy_bits: p.read_f64()?,
+                    });
+                }
+                tag => {
+                    return Err(ScientificTraceError::CorruptedFormat(format!(
+                        "unknown record trailer tag {tag:#x}"
+                    )));
+                }
+            }
+        }
         p.ensure_eof()?;
 
         Ok(Self {
@@ -833,6 +1127,8 @@ impl ScientificRecord {
             decision,
             stream_seeds,
             checkpoint,
+            control_bits,
+            selection_measurement,
         })
     }
 }
@@ -1853,6 +2149,10 @@ impl<'a> ByteReader<'a> {
         Self { bytes, pos: 0 }
     }
 
+    const fn remaining(&self) -> usize {
+        self.bytes.len() - self.pos
+    }
+
     fn read_slice(&mut self, len: usize) -> Result<&'a [u8], ScientificTraceError> {
         let end = self.pos.checked_add(len).ok_or_else(|| {
             ScientificTraceError::CorruptedFormat("length overflow while reading slice".to_owned())
@@ -2183,6 +2483,8 @@ mod tests {
             stream_seeds: StreamSeeds::new(seed)
                 .with_derived("episode", seed.derive_seed(StreamKey::episode(0))),
             checkpoint,
+            control_bits: None,
+            selection_measurement: None,
         }
     }
 
@@ -2480,6 +2782,92 @@ mod tests {
     }
 
     #[test]
+    fn control_bits_trailer_round_trips_and_is_absent_from_legacy_bytes() {
+        let seed = MasterSeed::new(8);
+        let policy = SensitiveFieldPolicy::default();
+        let plain = sample_record(1, 1, seed, None);
+        let with = plain.clone().with_control_bits(Some(ControlBitsRecord {
+            value_bits: 0.625,
+            scale_label: "pocket_z".to_owned(),
+            scale_version: (1, 0),
+            estimator_version: 1,
+        }));
+        // A record without the field keeps the legacy bytes exactly (reference encoder).
+        assert_eq!(
+            plain.to_bytes_with_policy(&policy).unwrap(),
+            legacy_to_bytes(&plain, &policy)
+        );
+        let bytes = with.to_bytes_with_policy(&policy).unwrap();
+        assert_ne!(bytes, legacy_to_bytes(&plain, &policy));
+        assert_eq!(
+            bytes.capacity(),
+            bytes.len(),
+            "payload_len accounts the trailer"
+        );
+        assert_eq!(ScientificRecord::from_bytes(&bytes).unwrap(), with);
+        assert_eq!(with.sanitized(&policy).unwrap(), with);
+    }
+
+    #[test]
+    fn selection_measurement_trailer_writes_modality_and_round_trips() {
+        let seed = MasterSeed::new(8);
+        let policy = SensitiveFieldPolicy::default();
+        let plain = sample_record(1, 1, seed, None);
+        assert_eq!(
+            plain.to_bytes_with_policy(&policy).unwrap(),
+            legacy_to_bytes(&plain, &policy),
+            "records without the measurement keep legacy bytes"
+        );
+
+        for modality in [
+            Some(EntropyProxyKind::FutureTrajectoryProxy),
+            Some(EntropyProxyKind::FinalStateProxy),
+            None,
+        ] {
+            let measurement = SelectionMeasurementRecord {
+                principle: SelectionPrinciple::Pure,
+                modality,
+                horizon: 6,
+                scale_m: 1.0,
+                scale_label: "kart_xy_uniform_m".to_owned(),
+                scale_version: (1, 0),
+                walkers: 27,
+                viable_walkers: 27,
+                collisions: 0,
+                entropy_bits: 1.5,
+            };
+            let with = plain
+                .clone()
+                .with_selection_measurement(Some(measurement.clone()));
+            let bytes = with.to_bytes_with_policy(&policy).unwrap();
+            assert_ne!(bytes, legacy_to_bytes(&plain, &policy));
+            assert_eq!(
+                bytes.capacity(),
+                bytes.len(),
+                "payload_len accounts the selection trailer"
+            );
+            let decoded = ScientificRecord::from_bytes(&bytes).unwrap();
+            assert_eq!(decoded, with);
+            assert_eq!(
+                decoded.selection_measurement.as_ref().unwrap().modality,
+                modality,
+                "modality is written into and read back from the scientific trace"
+            );
+            assert_eq!(with.sanitized(&policy).unwrap(), with);
+
+            // Both optional trailers coexist and round-trip in order.
+            let both = with.with_control_bits(Some(ControlBitsRecord {
+                value_bits: 0.25,
+                scale_label: "pocket_z".to_owned(),
+                scale_version: (1, 0),
+                estimator_version: 1,
+            }));
+            let bytes = both.to_bytes_with_policy(&policy).unwrap();
+            assert_eq!(ScientificRecord::from_bytes(&bytes).unwrap(), both);
+        }
+    }
+
+    #[test]
     fn single_pass_encoding_performs_exactly_one_allocation() {
         let seed = MasterSeed::new(6);
         let rec = sample_record(1, 1, seed, None);
@@ -2578,5 +2966,126 @@ mod tests {
         let expected = sink.finalize(&mut InMemoryTraceBackend::new()).unwrap();
         let actual = writer.finish().unwrap();
         assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn hypotheses_hash_is_covered_by_manifest_checksum_and_roundtrips() {
+        let seed = MasterSeed::new(7);
+        let legacy = TraceManifest::new(TraceManifestConfig::new(RunId::new(1), "s", "m", seed));
+        assert_eq!(legacy.hypotheses_hash, None);
+        let legacy_bytes = legacy.to_bytes();
+        assert_eq!(TraceManifest::from_bytes(&legacy_bytes).unwrap(), legacy);
+
+        let registered = TraceManifest::new(
+            TraceManifestConfig::new(RunId::new(1), "s", "m", seed)
+                .with_hypotheses_hash(Some(0xABCD)),
+        );
+        assert_ne!(registered.checksum, legacy.checksum);
+        let bytes = registered.to_bytes();
+        assert_eq!(bytes.len(), legacy_bytes.len() + 9);
+        assert_eq!(TraceManifest::from_bytes(&bytes).unwrap(), registered);
+
+        // Editing the registered hash after the fact is detected by verify().
+        let mut tampered = registered.clone();
+        tampered.hypotheses_hash = Some(0xABCE);
+        assert!(matches!(
+            tampered.verify(),
+            Err(ScientificTraceError::ChecksumMismatch { .. })
+        ));
+        // Dropping the hash is detected too.
+        let mut dropped = registered;
+        dropped.hypotheses_hash = None;
+        assert!(dropped.verify().is_err());
+    }
+
+    #[test]
+    fn endowment_hash_trailer_round_trips_and_legacy_bytes_are_unchanged() {
+        let seed = MasterSeed::new(11);
+        let base = TraceManifest::new(TraceManifestConfig::new(RunId::new(2), "s", "m", seed));
+        let base_bytes = base.to_bytes();
+        assert_eq!(base.endowment_hash, None);
+        assert_eq!(TraceManifest::from_bytes(&base_bytes).unwrap(), base);
+
+        let endowed = TraceManifest::new(
+            TraceManifestConfig::new(RunId::new(2), "s", "m", seed)
+                .with_endowment_hash(Some(0x00D0_7AC1)),
+        );
+        assert_ne!(endowed.checksum, base.checksum);
+        let endowed_bytes = endowed.to_bytes();
+        assert_eq!(endowed_bytes.len(), base_bytes.len() + 9);
+        assert_eq!(TraceManifest::from_bytes(&endowed_bytes).unwrap(), endowed);
+
+        // Both trailers coexist in a fixed order and survive the round trip.
+        let both = TraceManifest::new(
+            TraceManifestConfig::new(RunId::new(2), "s", "m", seed)
+                .with_hypotheses_hash(Some(0xABCD))
+                .with_endowment_hash(Some(0x00D0_7AC1)),
+        );
+        let both_bytes = both.to_bytes();
+        assert_eq!(both_bytes.len(), base_bytes.len() + 18);
+        assert_eq!(
+            &both_bytes[both_bytes.len() - 18..both_bytes.len() - 9],
+            &[HYPOTHESES_TAG, 0xCD, 0xAB, 0, 0, 0, 0, 0, 0]
+        );
+        assert_eq!(both_bytes[both_bytes.len() - 9], ENDOWMENT_TAG);
+        assert_eq!(TraceManifest::from_bytes(&both_bytes).unwrap(), both);
+
+        // Alterar o eliminar el hash de dotación de un manifiesto serializado es detectado.
+        let mut tampered = endowed.clone();
+        tampered.endowment_hash = Some(0x00D0_7AC2);
+        assert!(matches!(
+            tampered.verify(),
+            Err(ScientificTraceError::ChecksumMismatch { .. })
+        ));
+        let mut dropped = endowed;
+        dropped.endowment_hash = None;
+        assert!(dropped.verify().is_err());
+
+        // Un trailer de dotación duplicado se rechaza al parsear.
+        let mut duplicated = endowed_bytes.clone();
+        duplicated.extend_from_slice(&endowed_bytes[base_bytes.len()..]);
+        assert!(matches!(
+            TraceManifest::from_bytes(&duplicated),
+            Err(ScientificTraceError::CorruptedFormat(_))
+        ));
+
+        // Un tag desconocido tampoco se acepta.
+        let mut unknown = endowed_bytes;
+        unknown[base_bytes.len()] = 0xEE;
+        assert!(matches!(
+            TraceManifest::from_bytes(&unknown),
+            Err(ScientificTraceError::CorruptedFormat(_))
+        ));
+    }
+
+    #[test]
+    fn endowment_book_hash_travels_in_the_trace_manifest() {
+        let experiment = gogamen_spec::canonical_grid_endowment_experiment_fixture();
+        let book = experiment.endowment_book().unwrap();
+        let book_hash = book.hash().unwrap();
+        assert_eq!(book.hash().unwrap(), book_hash);
+
+        let manifest = TraceManifest::new(
+            TraceManifestConfig::new(RunId::new(3), "grid_endowment_v0_2", "m", MasterSeed::new(5))
+                .with_endowment_hash(Some(book_hash)),
+        );
+        assert_eq!(manifest.endowment_hash, Some(book_hash));
+        let bytes = manifest.to_bytes();
+        let parsed = TraceManifest::from_bytes(&bytes).unwrap();
+        assert_eq!(parsed.endowment_hash, Some(book_hash));
+        assert_eq!(parsed, manifest);
+
+        // Un libro distinto (Kart) produce otro hash y otro manifiesto verificable.
+        let kart_hash = gogamen_spec::canonical_kart_endowment_experiment_fixture()
+            .endowment_book()
+            .unwrap()
+            .hash()
+            .unwrap();
+        assert_ne!(kart_hash, book_hash);
+        let mut other = manifest.clone();
+        other.endowment_hash = Some(kart_hash);
+        other.recompute_checksum();
+        assert!(other.verify().is_ok());
+        assert_ne!(other.checksum, manifest.checksum);
     }
 }

@@ -38,11 +38,12 @@ pub use plan_runner::{
 };
 pub use runtime::{HeadlessRuntime, ProposalMutator, RuntimeConfig, RuntimeError};
 pub use scientific_trace::{
-    AsyncTraceWriter, BufferedTraceSink, CheckpointRef, DecisionAction, EnqueueOutcome,
-    FileTraceBackend, InMemoryTraceBackend, OverflowPolicy, RecordedGuardDecision,
+    AsyncTraceWriter, BufferedTraceSink, CheckpointRef, ControlBitsRecord, DecisionAction,
+    EnqueueOutcome, FileTraceBackend, InMemoryTraceBackend, OverflowPolicy, RecordedGuardDecision,
     SCIENTIFIC_TRACE_VERSION, ScientificRecord, ScientificTraceArchive, ScientificTraceError,
-    SensitiveFieldMode, SensitiveFieldPolicy, StreamSeeds, TickInputs, TraceGap, TraceGapReason,
-    TraceManifest, TraceManifestConfig, TraceQuota, TraceStorageBackend, TraceWriteError,
+    SelectionMeasurementRecord, SensitiveFieldMode, SensitiveFieldPolicy, StreamSeeds, TickInputs,
+    TraceGap, TraceGapReason, TraceManifest, TraceManifestConfig, TraceQuota, TraceStorageBackend,
+    TraceWriteError,
 };
 pub use temporal_profile::{
     CriticalBufferConfig, CriticalBufferLimits, CriticalOperationDescriptor, CriticalPathBuffers,

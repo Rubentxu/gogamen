@@ -90,6 +90,8 @@ pub fn scientific_archive() -> ScientificTraceArchive {
             },
             stream_seeds: StreamSeeds::new(seed),
             checkpoint,
+            control_bits: None,
+            selection_measurement: None,
         });
     }
     ScientificTraceArchive { manifest, records }
