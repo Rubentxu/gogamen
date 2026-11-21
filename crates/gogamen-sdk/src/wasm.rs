@@ -10,6 +10,16 @@
 //!   instanciar ([`WasmError::UnauthorizedImport`]). Por defecto la allowlist está vacía:
 //!   el módulo no recibe actuadores, capacidades, reloj, WASI ni red.
 //!
+//! - **Carga/compilación** (GOG-150): `bytes` por encima de
+//!   [`WasmSandboxConfig::max_module_bytes`] (default 4 MiB) se rechazan *antes* de
+//!   `Module::new` ([`WasmError::ModuleTooLarge`]). La compilación corre en un hilo aparte
+//!   con timeout ([`WasmSandboxConfig::compile_timeout`], default 5 s): si vence, `load`
+//!   devuelve [`WasmError::CompileTimeout`] sin bloquear al llamador. Wasmtime no ofrece
+//!   cancelación de la compilación (ni fuel ni epoch la cubren), así que el hilo huérfano
+//!   termina por su cuenta y descarta el resultado; durante ese tiempo puede seguir
+//!   consumiendo una CPU y memoria acotadas por el tope de bytes. No hay validación
+//!   estructural previa adicional (no se añade dependencia `wasmparser`).
+//!
 //! # Sin garantías de tiempo real duro
 //! El fuel es un presupuesto determinista de instrucciones Wasm; **no** acota la latencia
 //! de pared ni ofrece garantías hard real-time. Compilar y instanciar tiene coste variable.
@@ -21,6 +31,8 @@
 use std::collections::BTreeSet;
 use std::error::Error;
 use std::fmt;
+use std::sync::mpsc;
+use std::time::Duration;
 
 use wasmtime::{
     Config, Engine, ExternType, Instance, InstancePre, Linker, Module, ResourceLimiter, Store, Trap,
@@ -63,7 +75,16 @@ pub struct WasmSandboxConfig {
     pub max_memory_bytes: usize,
     /// Imports permitidos; vacío por defecto (efecto puro sin anfitrión).
     pub allowed_imports: BTreeSet<WasmHostImport>,
+    /// Tamaño máximo del módulo de entrada en bytes, comprobado antes de compilar.
+    pub max_module_bytes: usize,
+    /// Tiempo máximo de espera de la compilación (el hilo no es cancelable).
+    pub compile_timeout: Duration,
 }
+
+/// Tope por defecto de bytes del módulo (4 MiB).
+pub const DEFAULT_MAX_MODULE_BYTES: usize = 4 * 1024 * 1024;
+/// Timeout de compilación por defecto (5 s).
+pub const DEFAULT_COMPILE_TIMEOUT: Duration = Duration::from_secs(5);
 
 impl WasmSandboxConfig {
     /// Configuración estricta: fuel dado, 1 página (64 KiB) y sin imports.
@@ -72,7 +93,19 @@ impl WasmSandboxConfig {
             fuel,
             max_memory_bytes: 64 * 1024,
             allowed_imports: BTreeSet::new(),
+            max_module_bytes: DEFAULT_MAX_MODULE_BYTES,
+            compile_timeout: DEFAULT_COMPILE_TIMEOUT,
         }
+    }
+    /// Cambia el tope de bytes del módulo (rechazo previo a compilar).
+    pub fn with_max_module_bytes(mut self, bytes: usize) -> Self {
+        self.max_module_bytes = bytes;
+        self
+    }
+    /// Cambia el timeout de compilación.
+    pub fn with_compile_timeout(mut self, timeout: Duration) -> Self {
+        self.compile_timeout = timeout;
+        self
     }
     /// Cambia el tope de memoria en bytes.
     pub fn with_max_memory_bytes(mut self, bytes: usize) -> Self {
@@ -112,6 +145,18 @@ pub enum WasmError {
     MissingEntry,
     /// Otro trap de ejecución (p. ej. `unreachable`).
     Trap(String),
+    /// El módulo supera el tope de bytes (rechazado antes de compilar).
+    ModuleTooLarge {
+        /// Tamaño recibido.
+        size: usize,
+        /// Tope configurado.
+        limit: usize,
+    },
+    /// La compilación no terminó en el tiempo asignado (el hilo queda huérfano).
+    CompileTimeout {
+        /// Timeout configurado en milisegundos.
+        timeout_ms: u64,
+    },
     /// Error interno de configuración del motor.
     Engine(String),
     /// El manifiesto viola el contrato de pureza (permisos, origen remoto, etc.).
@@ -131,6 +176,12 @@ impl fmt::Display for WasmError {
             Self::OutOfFuel { budget } => write!(f, "wasm fuel budget {budget} exhausted"),
             Self::MissingEntry => write!(f, "wasm module lacks `run: (i64) -> i64` export"),
             Self::Trap(m) => write!(f, "wasm trap: {m}"),
+            Self::ModuleTooLarge { size, limit } => {
+                write!(f, "wasm module of {size} bytes exceeds limit of {limit}")
+            }
+            Self::CompileTimeout { timeout_ms } => {
+                write!(f, "wasm compilation exceeded {timeout_ms} ms")
+            }
             Self::Engine(m) => write!(f, "wasm engine error: {m}"),
             Self::Manifest(m) => write!(f, "wasm extension manifest rejected: {m}"),
         }
@@ -176,6 +227,32 @@ impl ResourceLimiter for Limiter {
     }
 }
 
+/// Compila en un hilo aparte y espera como mucho `timeout`. Si vence, el hilo queda
+/// huérfano (la compilación de Wasmtime no es cancelable) y termina por su cuenta.
+fn compile_with_timeout(
+    engine: &Engine,
+    bytes: &[u8],
+    timeout: Duration,
+) -> Result<Module, WasmError> {
+    let (tx, rx) = mpsc::channel();
+    let engine = engine.clone();
+    let owned = bytes.to_vec();
+    std::thread::Builder::new()
+        .name("gogamen-wasm-compile".to_owned())
+        .spawn(move || {
+            let r = Module::new(&engine, &owned).map_err(|e| format!("{e}"));
+            let _ = tx.send(r);
+        })
+        .map_err(|e| WasmError::Engine(format!("spawn compile thread: {e}")))?;
+    match rx.recv_timeout(timeout) {
+        Ok(Ok(m)) => Ok(m),
+        Ok(Err(e)) => Err(WasmError::InvalidModule(e)),
+        Err(_) => Err(WasmError::CompileTimeout {
+            timeout_ms: u64::try_from(timeout.as_millis()).unwrap_or(u64::MAX),
+        }),
+    }
+}
+
 /// Efecto WASM puro, validado y precompilado, invocable bajo presupuesto.
 pub struct WasmEffect {
     engine: Engine,
@@ -195,11 +272,16 @@ impl WasmEffect {
     /// Compila `bytes` (binario Wasm o texto WAT), valida imports contra la allowlist y
     /// deja el módulo listo para instanciar. No ejecuta código del módulo.
     pub fn load(bytes: &[u8], config: WasmSandboxConfig) -> Result<Self, WasmError> {
+        if bytes.len() > config.max_module_bytes {
+            return Err(WasmError::ModuleTooLarge {
+                size: bytes.len(),
+                limit: config.max_module_bytes,
+            });
+        }
         let mut cfg = Config::new();
         cfg.consume_fuel(true);
         let engine = Engine::new(&cfg).map_err(|e| WasmError::Engine(e.to_string()))?;
-        let module =
-            Module::new(&engine, bytes).map_err(|e| WasmError::InvalidModule(format!("{e}")))?;
+        let module = compile_with_timeout(&engine, bytes, config.compile_timeout)?;
 
         let mut linker: Linker<Limiter> = Linker::new(&engine);
         for import in module.imports() {
