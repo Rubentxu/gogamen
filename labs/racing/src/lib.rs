@@ -5,23 +5,47 @@
 //!   control continuo acotado `[steering_angle, throttle_accel]` en `ActionSpace::Continuous`).
 //! - Pista 2D con muros, límites de contorno y checkpoints ordenados ([`TrackMap`], [`WallSegment`], [`TrackCheckpoint`]).
 //! - [`KartEnv`] (`World` + `LiveEnvironment`) y [`KartModel`] (`GenerativeModel` + `BranchableSnapshot`).
+//! - Principio de selección tipado ([`SelectionPrinciple`]) que construye la recompensa FMC
+//!   ([`KartRewardFunction`]): `Directed` (por defecto, conducta histórica), `Pure` (retorno
+//!   constante) y `Situated` (declarado, no implementado). [`run_pure_selection_probe`] mide por
+//!   tick modalidad, horizonte, escala, walkers viables y colisiones (GOG-198).
 //! - Declaración explícita de aproximaciones en [`MODEL_APPROXIMATIONS_NOTE`].
 
 pub mod autonomous_fmc;
+pub mod entropic_pure;
+pub mod kart_adaptive;
+pub mod kart_adaptive_lab;
+pub mod kart_learned;
+pub mod kart_learned_lab;
 pub mod physics;
+pub mod selection_principle;
+pub mod shrinking_budget;
 pub mod track;
 pub mod world;
 
 pub use autonomous_fmc::{
     DEV_SEEDS, KartAutonomousMetrics, KartCandidateFuture, KartDecisionReport, KartEpisodeOutcome,
-    KartFmcController, KartFmcControllerConfig, KartObjectiveWeights, KartRunError,
-    SimpleTrackBaseline, SimpleTrackBaselineConfig, UNSEEN_SEEDS,
+    KartEpisodeTrace, KartFmcController, KartFmcControllerConfig, KartObjectiveWeights,
+    KartRunError, KartTickRecord, SimpleTrackBaseline, SimpleTrackBaselineConfig, UNSEEN_SEEDS,
 };
+pub use entropic_pure::{
+    ENTROPIC_POLICY_NAME, EntropicBehavior, EntropicDecision, EntropicEpisodeTrace,
+    EntropicOutcome, EntropicPureConfig, EntropicPureController, EntropicRunError,
+    EntropicTickRecord,
+};
+pub use gogamen_core::SelectionPrinciple;
 pub use physics::{
     DEFAULT_KART_DT_SECS, DEFAULT_KART_RADIUS, DEFAULT_LINEAR_DRAG, DEFAULT_MAX_ACCEL,
     DEFAULT_MAX_SPEED, DEFAULT_MAX_STEERING_ANGLE, DEFAULT_MIN_ACCEL, DEFAULT_MIN_SPEED,
     DEFAULT_WHEELBASE, KartControl, KartDerivatives, KartState, KinematicBicycleConfig,
     MODEL_APPROXIMATIONS_NOTE, compute_bicycle_derivatives, integrate_bicycle_step, wrap_angle,
+};
+pub use selection_principle::{
+    DEFAULT_PURE_PROBE_HORIZON, DEFAULT_PURE_PROBE_SCALE_M, DEFAULT_PURE_PROBE_WALKERS_PER_ROOT,
+    KartRewardFunction, MAX_PURE_PROBE_HORIZON, MAX_PURE_PROBE_WALKERS_PER_ROOT,
+    PURE_CONSTANT_REWARD, PURE_PROBE_ROOTS, PURE_PROBE_SCALE_LABEL, PURE_PROBE_SCALE_VERSION,
+    SelectionBehavior, SelectionEpisodeTrace, SelectionProbeConfig, SelectionProbeError,
+    SelectionProbeOutcome, SelectionTickRecord, run_pure_selection_probe,
 };
 pub use track::{
     Point2, TrackCheckpoint, TrackMap, WallSegment, point_to_segment_distance, segments_intersect,

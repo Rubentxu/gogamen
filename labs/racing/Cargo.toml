@@ -6,3 +6,6 @@ license.workspace = true
 
 [dependencies]
 gogamen-core = { path = "../../crates/gogamen-core" }
+
+[dev-dependencies]
+gogamen-runtime = { path = "../../crates/gogamen-runtime" }
