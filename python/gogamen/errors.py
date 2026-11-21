@@ -56,3 +56,34 @@ def raise_for_protocol_error(error_payload: object) -> None:
     if code == "DomainError":
         raise GogamenDomainError(message, code=code)
     raise GogamenProtocolError(message, code=code)
+
+
+class GogamenSpecError(GogamenError):
+    """Error de especificación con su ubicación.
+
+    `pointer` es un JSON pointer (RFC 6901) cuando se conoce (errores de la
+    canonicalización en Python o campos de primer nivel reportados por el
+    parser Rust); `path` es el archivo que se envió a la frontera nativa;
+    `context`/`field` reproducen el diagnóstico del parser Rust sin interpretarlo.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        code: str = "SpecError",
+        pointer: str | None = None,
+        path: str | None = None,
+        context: str | None = None,
+        field: str | None = None,
+    ) -> None:
+        loc = pointer if pointer is not None else path
+        super().__init__(f"{message} (at {loc})" if loc else message, code=code)
+        self.pointer = pointer
+        self.path = path
+        self.context = context
+        self.field = field
+
+
+class GogamenSweepError(GogamenError):
+    """Fallo al lanzar o leer el barrido (binario ausente, salida no válida, hash CSV divergente)."""
