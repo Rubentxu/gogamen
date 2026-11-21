@@ -1961,18 +1961,23 @@ dependencies = [
  "gogamen-core",
  "gogamen-lab-cartpole",
  "gogamen-lab-grid",
+ "gogamen-lab-racing",
  "gogamen-projection",
  "gogamen-runtime",
+ "gogamen-spec",
 ]
 
 [[package]]
 name = "gogamen-cli"
 version = "0.1.0"
 dependencies = [
+ "gogamen-arena",
  "gogamen-compiler",
  "gogamen-core",
  "gogamen-lab-grid",
+ "gogamen-lab-racing",
  "gogamen-runtime",
+ "gogamen-sdk",
  "gogamen-spec",
 ]
 
@@ -2040,6 +2045,7 @@ name = "gogamen-lab-grid"
 version = "0.1.0"
 dependencies = [
  "gogamen-core",
+ "gogamen-sdk",
  "gogamen-spec",
 ]
 
@@ -2069,6 +2075,7 @@ name = "gogamen-lab-racing"
 version = "0.1.0"
 dependencies = [
  "gogamen-core",
+ "gogamen-runtime",
 ]
 
 [[package]]
