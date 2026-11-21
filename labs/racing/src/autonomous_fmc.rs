@@ -16,6 +16,15 @@
 //! - Circuito no visto de generalización: [`TrackMap::chicane_circuit`].
 //! - Semillas de desarrollo: [`DEV_SEEDS`] (`[7, 19, 42]`).
 //! - Semillas no vistas: [`UNSEEN_SEEDS`] (`[101, 202, 303]`).
+//!
+//! # Principio de selección (GOG-198)
+//! [`KartFmcControllerConfig::principle`] decide cómo se construye la recompensa
+//! ([`crate::KartRewardFunction`]). El valor por defecto es
+//! [`SelectionPrinciple::Directed`], que reproduce la aritmética histórica de
+//! [`evaluate_kart_transition`] sin cambios; [`SelectionPrinciple::Pure`] usa una recompensa
+//! constante y [`SelectionPrinciple::Situated`] está declarado pero no implementado (fail-closed).
+//! [`KartFmcController::run_trace`] exporta una traza por tick con hash determinista apta para
+//! comparar conducta entre principios.
 
 use std::time::Instant;
 
@@ -23,10 +32,11 @@ use gogamen_core::{
     Action, Actuator, DeterministicRng, DomainError, EnvironmentError, EnvironmentObserver,
     FmcPlanner, FmcPlannerConfig, FmcScoringConfig, FmcTraceSummary, GenerativeModel,
     LiveEnvironment, MasterSeed, ModelError, PlanBudget, PlanRequest, PlanStatus, PlanningContext,
-    State, StepDt, StreamKey, Terminal, TerminalReason, Transition,
+    SelectionPrinciple, State, StepDt, StreamKey, Terminal, TerminalReason, Transition,
 };
 
 use crate::physics::{KartControl, KartState, KinematicBicycleConfig, wrap_angle};
+use crate::selection_principle::KartRewardFunction;
 use crate::track::{Point2, TrackMap};
 use crate::world::{KartEnv, KartModel};
 
@@ -160,6 +170,75 @@ impl KartAutonomousMetrics {
     }
 }
 
+/// Registro por tick de una traza de episodio de kart.
+///
+/// No contiene latencias ni tiempo real: es determinista para semilla, configuración y principio
+/// fijos y por eso alimenta [`KartEpisodeTrace::trace_hash`].
+#[derive(Debug, Clone, PartialEq)]
+pub struct KartTickRecord {
+    /// Tick del entorno tras aplicar el control (1-based).
+    pub tick: usize,
+    /// Control continuo aplicado.
+    pub control: KartControl,
+    /// Posición X tras el tick.
+    pub x: f64,
+    /// Posición Y tras el tick.
+    pub y: f64,
+    /// Orientación (rad) tras el tick.
+    pub yaw: f64,
+    /// Velocidad (m/s) tras el tick.
+    pub speed: f64,
+    /// Checkpoints superados tras el tick.
+    pub checkpoints_cleared: usize,
+    /// Terminal del entorno tras el tick.
+    pub terminal: Terminal,
+}
+
+/// Traza por tick determinista de un episodio autónomo de kart.
+#[derive(Debug, Clone, PartialEq)]
+pub struct KartEpisodeTrace {
+    /// Principio de selección activo.
+    pub principle: SelectionPrinciple,
+    /// Nombre de la pista.
+    pub track_name: String,
+    /// Registros por tick aplicado.
+    pub records: Vec<KartTickRecord>,
+    /// Desenlace del episodio.
+    pub outcome: KartEpisodeOutcome,
+}
+
+impl KartEpisodeTrace {
+    /// Hash FNV-1a 64 determinista de la traza (excluye latencias y tiempo real).
+    ///
+    /// El terminal de cada registro codifica el desenlace, de modo que el hash cubre también el
+    /// final del episodio sin duplicarlo.
+    pub fn trace_hash(&self) -> u64 {
+        let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+        let mut feed = |v: u64| {
+            for b in v.to_le_bytes() {
+                h ^= u64::from(b);
+                h = h.wrapping_mul(0x0000_0100_0000_01b3);
+            }
+        };
+        for r in &self.records {
+            feed(r.tick as u64);
+            feed(r.control.steering_angle.to_bits());
+            feed(r.control.throttle_accel.to_bits());
+            feed(r.x.to_bits());
+            feed(r.y.to_bits());
+            feed(r.yaw.to_bits());
+            feed(r.speed.to_bits());
+            feed(r.checkpoints_cleared as u64);
+            feed(match r.terminal {
+                Terminal::Ongoing => 0,
+                Terminal::Terminated(TerminalReason::GoalReached) => 1,
+                Terminal::Terminated(_) => 2,
+            });
+        }
+        h
+    }
+}
+
 /// Configuración del controlador autónomo [`KartFmcController`].
 #[derive(Debug, Clone, PartialEq)]
 pub struct KartFmcControllerConfig {
@@ -167,12 +246,17 @@ pub struct KartFmcControllerConfig {
     pub planner: FmcPlannerConfig,
     /// Presupuesto máximo de transiciones simuladas por decisión.
     pub max_transitions_per_decision: usize,
-    /// Pesos del objetivo multi-criterio.
+    /// Pesos del objetivo multi-criterio (solo los consulta `Directed`).
     pub weights: KartObjectiveWeights,
+    /// Principio que construye la recompensa FMC (`Directed` por defecto).
+    pub principle: SelectionPrinciple,
 }
 
 impl KartFmcControllerConfig {
     /// Crea una configuración validando pesos y presupuesto.
+    ///
+    /// El principio por defecto es [`SelectionPrinciple::Directed`], que conserva la conducta
+    /// histórica. Usa [`Self::with_principle`] para seleccionar otro principio.
     pub fn new(
         planner: FmcPlannerConfig,
         max_transitions_per_decision: usize,
@@ -188,7 +272,15 @@ impl KartFmcControllerConfig {
             planner,
             max_transitions_per_decision,
             weights,
+            principle: SelectionPrinciple::Directed,
         })
+    }
+
+    /// Asigna el principio de selección validándolo (fail-closed para `Situated`).
+    pub fn with_principle(mut self, principle: SelectionPrinciple) -> Result<Self, DomainError> {
+        principle.validate()?;
+        self.principle = principle;
+        Ok(self)
     }
 
     /// Construye la configuración por defecto parametrizada por `dt` y `seed`.
@@ -202,6 +294,7 @@ impl KartFmcControllerConfig {
             planner,
             max_transitions_per_decision: population_size * horizon,
             weights: KartObjectiveWeights::default(),
+            principle: SelectionPrinciple::Directed,
         }
     }
 }
@@ -339,6 +432,15 @@ impl KartFmcController {
         let horizon = self.config.planner.horizon();
         let dt = self.config.planner.dt();
         let kin = self.model.config();
+        let reward_fn = KartRewardFunction::new(
+            self.config.principle,
+            self.model.track(),
+            kin,
+            &self.config.weights,
+        )
+        .map_err(|_| ModelError::InvalidState {
+            reason: "unsupported selection principle for candidate futures",
+        })?;
         let mut rng = MasterSeed::new(0).derive(StreamKey::Episode(0));
         let mut candidates: Vec<(Action, usize, f64, f64)> = report
             .trace
@@ -379,14 +481,7 @@ impl KartFmcController {
                     Err(ModelError::TerminalState) => break,
                     Err(e) => return Err(e),
                 };
-                hold_return += evaluate_kart_transition(
-                    self.model.track(),
-                    kin,
-                    &self.config.weights,
-                    &state,
-                    &action,
-                    &tr,
-                );
+                hold_return += reward_fn.reward(&state, &action, &tr);
                 state = tr.next_state().clone();
                 let k = KartState::from_slice(&state.values()[0..4])
                     .map_err(ModelError::TransitionFailed)?;
@@ -437,21 +532,18 @@ impl KartFmcController {
         let track = self.model.track().clone();
         let kinematics = self.model.config().clone();
         let weights = self.config.weights;
+        let reward_fn =
+            KartRewardFunction::new(self.config.principle, &track, &kinematics, &weights).map_err(
+                |_| ModelError::InvalidState {
+                    reason: "unsupported selection principle for planning",
+                },
+            )?;
 
         let mut ctx = PlanningContext::new(&self.model, &mut self.rng);
         let (result, trace) = self.planner.plan_with_trace(
             &mut ctx,
             &request,
-            move |prev_state, action, transition| {
-                evaluate_kart_transition(
-                    &track,
-                    &kinematics,
-                    &weights,
-                    prev_state,
-                    action,
-                    transition,
-                )
-            },
+            move |prev_state, action, transition| reward_fn.reward(prev_state, action, transition),
             kart_phi_projection,
         )?;
 
@@ -536,6 +628,61 @@ impl KartFmcController {
             mean_decision_latency_ns: mean_latency_ns,
             total_transitions_used: total_transitions,
             sim_elapsed_secs: env.elapsed().as_secs_f64(),
+            outcome,
+        })
+    }
+
+    /// Ejecuta un episodio en `env` registrando una traza determinista por tick.
+    ///
+    /// Comparte la semántica de terminación de [`Self::run_episode`] y no reutiliza latencias ni
+    /// tiempo real, de modo que [`KartEpisodeTrace::trace_hash`] es comparable entre principios.
+    pub fn run_trace(
+        &mut self,
+        env: &mut KartEnv,
+        max_ticks: usize,
+    ) -> Result<KartEpisodeTrace, KartRunError> {
+        LiveEnvironment::reset(env).map_err(KartRunError::Environment)?;
+        let mut records = Vec::with_capacity(max_ticks);
+        let mut outcome = KartEpisodeOutcome::FailedTimeout;
+
+        for _ in 0..max_ticks {
+            let report = self.decide_from_env(env).map_err(KartRunError::Model)?;
+            let (Some(action), Some(control)) = (report.action, report.control) else {
+                outcome = KartEpisodeOutcome::FailedNoAuthorizedAction;
+                break;
+            };
+
+            let apply_out = env.apply(&action).map_err(KartRunError::Environment)?;
+            let kart = env.kart_state();
+            let terminal = apply_out.terminal();
+            records.push(KartTickRecord {
+                tick: env.tick().as_u64() as usize,
+                control,
+                x: kart.x,
+                y: kart.y,
+                yaw: kart.yaw,
+                speed: kart.speed,
+                checkpoints_cleared: env.checkpoints_cleared(),
+                terminal,
+            });
+
+            match terminal {
+                Terminal::Ongoing => {}
+                Terminal::Terminated(TerminalReason::GoalReached) => {
+                    outcome = KartEpisodeOutcome::Completed;
+                    break;
+                }
+                Terminal::Terminated(_) => {
+                    outcome = KartEpisodeOutcome::FailedCollision;
+                    break;
+                }
+            }
+        }
+
+        Ok(KartEpisodeTrace {
+            principle: self.config.principle,
+            track_name: env.track().name().to_owned(),
+            records,
             outcome,
         })
     }
@@ -752,7 +899,8 @@ fn kart_phi_projection(state: &State) -> Vec<f64> {
     ]
 }
 
-fn evaluate_kart_transition(
+/// Aritmética histórica de la recompensa `Directed` (sin cambios desde antes de GOG-198).
+pub(crate) fn evaluate_kart_transition(
     track: &TrackMap,
     config: &KinematicBicycleConfig,
     weights: &KartObjectiveWeights,
