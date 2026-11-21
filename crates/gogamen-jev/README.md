@@ -15,8 +15,14 @@ until checked against real documentation; the real smoke (below) is the intended
 | Build | Contents |
 |---|---|
 | default | Contract logic, circuit breaker, redaction, Replay fallback, `JevTransport` trait. **No network code**, no HTTP client. |
-| `--features http` | `UreqTransport` (plain `http://`, `ureq` 3, no TLS). |
-| `--features https` | Adds rustls TLS to `ureq`. Not exercised by the offline tests. |
+| `--features http` | `UreqTransport` (`ureq` 3, no TLS: only loopback `http://` with opt-in is accepted). |
+| `--features https` | Adds rustls TLS to `ureq`; required for any `https://` endpoint. Not exercised by the offline tests. |
+
+**Endpoint policy (GOG-140):** remote `http://` is always refused; loopback `http://`
+(`localhost`, `127.0.0.0/8`, `[::1]`) needs `JevConfig::allow_insecure_loopback_http = true`
+(default `false`, even without a key); `https://` needs feature `https`; userinfo in the URL is
+rejected. A refused endpoint yields `JevError::InsecureEndpoint` before the key is read and the
+Replay fallback answers.
 
 `gogamen-core` and `gogamen-cli` do not depend on this crate; their dependency trees stay free
 of network crates.

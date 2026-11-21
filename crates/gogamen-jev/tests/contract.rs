@@ -139,6 +139,7 @@ fn query() -> TypedQuery {
 
 fn provider(base: &str, timeout: Duration) -> JevHttpProvider<UreqTransport> {
     let mut cfg = JevConfig::new(base, "jev-m1");
+    cfg.allow_insecure_loopback_http = true;
     cfg.timeout = timeout;
     JevHttpProvider::new(
         cfg,
@@ -294,7 +295,8 @@ fn server_error_and_refused_connection_degrade_to_replay() {
 #[test]
 fn without_key_the_adapter_makes_no_request() {
     let m = mock(vec![]);
-    let cfg = JevConfig::new(&m.base, "jev-m1");
+    let mut cfg = JevConfig::new(&m.base, "jev-m1");
+    cfg.allow_insecure_loopback_http = true;
     let p = JevHttpProvider::new(
         cfg,
         UreqTransport,

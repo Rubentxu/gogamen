@@ -18,7 +18,8 @@ use crate::wire::{
     self, CAPABILITIES_PATH, CONTRACT_VERSION, Capabilities, ParsedAnswer, QUERY_PATH,
 };
 
-/// Adapter configuration. Contains no secret (the key comes from a [`SecretProvider`]).
+/// Adapter configuration. Contains no secret (the key comes from a [`SecretProvider`]), so the
+/// derived `Debug` is log-safe; the endpoint is checked by [`JevConfig::validate_endpoint`].
 #[derive(Debug, Clone)]
 pub struct JevConfig {
     /// Base URL without trailing slash, e.g. `http://127.0.0.1:8080`.
@@ -35,6 +36,10 @@ pub struct JevConfig {
     pub sensor_id: u64,
     /// Circuit breaker tuning.
     pub breaker: BreakerConfig,
+    /// Conscious opt-in to cleartext `http://` towards a loopback host (`localhost`,
+    /// `127.0.0.0/8`, `[::1]`). Default `false`: loopback http is refused even without a key.
+    /// Remote `http://` is never allowed; `https://` needs the `https` cargo feature.
+    pub allow_insecure_loopback_http: bool,
 }
 
 impl JevConfig {
@@ -48,7 +53,18 @@ impl JevConfig {
             timeout: Duration::from_secs(2),
             sensor_id: 1,
             breaker: BreakerConfig::default(),
+            allow_insecure_loopback_http: false,
         }
+    }
+
+    /// Checks the endpoint against the transport-security policy (see [`crate::url_policy`]).
+    pub fn validate_endpoint(&self) -> Result<(), JevError> {
+        crate::url_policy::check_base_url(
+            &self.base_url,
+            self.allow_insecure_loopback_http,
+            cfg!(feature = "https"),
+        )
+        .map_err(|reason| JevError::InsecureEndpoint { reason })
     }
 }
 
@@ -138,6 +154,11 @@ impl<T: JevTransport> JevHttpProvider<T> {
         self.lock().events.clone()
     }
 
+    #[cfg(test)]
+    pub(crate) fn config_for_test(&self) -> &JevConfig {
+        &self.config
+    }
+
     /// Capabilities cached by the last successful discovery.
     pub fn capabilities(&self) -> Option<Capabilities> {
         self.lock().capabilities.clone()
@@ -185,7 +206,7 @@ impl<T: JevTransport> JevHttpProvider<T> {
                 {
                     let mut st = self.lock();
                     match &err {
-                        JevError::MissingCredentials => {}
+                        JevError::MissingCredentials | JevError::InsecureEndpoint { .. } => {}
                         JevError::RateLimited { retry_after } => st.breaker.on_failure(
                             now,
                             Some(retry_after.unwrap_or(self.config.breaker.cooldown)),
@@ -310,6 +331,8 @@ impl<T: JevTransport> JevHttpProvider<T> {
         start: MonotonicInstant,
         budget: Duration,
     ) -> Result<SystemOneResponse, JevError> {
+        // Before the key is even read: an insecure endpoint must never see a credential.
+        self.config.validate_endpoint()?;
         let secret = self.secret.secret().ok_or(JevError::MissingCredentials)?;
         let deadline_at = start.saturating_add(budget);
 

@@ -105,7 +105,8 @@ fn provider(
     key: Option<&str>,
     replay: ReplaySystemOneProvider,
 ) -> JevHttpProvider<Fake> {
-    let mut cfg = JevConfig::new("http://jev.invalid/", "jev-m1");
+    let mut cfg = JevConfig::new("http://127.0.0.1:8080/", "jev-m1");
+    cfg.allow_insecure_loopback_http = true;
     cfg.breaker.failure_threshold = 2;
     cfg.breaker.cooldown = Duration::from_secs(10);
     let secret: Box<dyn SecretProvider> = match key {
@@ -128,8 +129,8 @@ fn success_discovers_then_queries_and_wraps_envelope() {
     assert!((env.confidence().as_f64() - 0.75).abs() < 1e-12);
     let seen = fake.seen.lock().unwrap();
     assert_eq!(seen.len(), 2);
-    assert_eq!(seen[0].url, "http://jev.invalid/v1/capabilities");
-    assert_eq!(seen[1].url, "http://jev.invalid/v1/system-one/query");
+    assert_eq!(seen[0].url, "http://127.0.0.1:8080/v1/capabilities");
+    assert_eq!(seen[1].url, "http://127.0.0.1:8080/v1/system-one/query");
     let auth = seen[1]
         .headers
         .iter()
@@ -364,4 +365,153 @@ fn jev_envelope_cannot_authorize_an_action_guard_still_decides() {
         GuardDecision::Reject(GuardRejectionReason::Unauthorized)
     );
     let _ = Action::discrete_in_space(0, &space).unwrap();
+}
+
+// ---- GOG-140: endpoint transport-security policy ----
+
+fn url_ok(url: &str, loopback_opt_in: bool, https: bool) -> bool {
+    crate::url_policy::check_base_url(url, loopback_opt_in, https).is_ok()
+}
+
+#[test]
+fn gog_140_remote_http_always_rejected() {
+    for u in [
+        "http://jev.example.com",
+        "http://10.0.0.5:8080",
+        "http://192.168.1.1",
+        "http://[2001:db8::1]:80",
+        "http://localhost.evil.com",
+        "http://127.0.0.1.evil.com",
+        "http://128.0.0.1",
+        "http://0.0.0.0",
+        "HTTP://Jev.Example.COM/v1",
+    ] {
+        assert!(!url_ok(u, true, true), "{u}");
+        assert!(!url_ok(u, false, false), "{u}");
+    }
+}
+
+#[test]
+fn gog_140_loopback_http_needs_opt_in() {
+    for u in [
+        "http://localhost",
+        "http://LOCALHOST:8080/x",
+        "http://127.0.0.1:8080",
+        "http://127.255.0.9",
+        "http://[::1]",
+        "http://[::1]:9000/path",
+        "HTTP://127.0.0.1",
+    ] {
+        assert!(!url_ok(u, false, false), "default must refuse {u}");
+        assert!(url_ok(u, true, false), "opt-in must allow {u}");
+    }
+}
+
+#[test]
+fn gog_140_userinfo_and_malformed_rejected() {
+    for u in [
+        "http://127.0.0.1@evil.com",
+        "http://localhost:80@evil.com",
+        "https://user:pw@jev.example.com",
+        "http://127.0.0.1:8080@127.0.0.1",
+        "ftp://127.0.0.1",
+        "127.0.0.1:8080",
+        "http://",
+        "http://:8080",
+        "http://127.0.0.1:",
+        "http://127.0.0.1:99999",
+        "http://127.0.0.1:80a",
+        "http://[::1",
+        "http://[::1]x",
+        "http://127.0.0.1 /x",
+        "http://127.0.0.1\\@evil.com",
+        "http://127.0.0.1:80:80",
+    ] {
+        assert!(!url_ok(u, true, true), "{u}");
+    }
+}
+
+#[test]
+fn gog_140_https_needs_feature() {
+    assert!(url_ok("https://jev.example.com:8443/base", false, true));
+    assert!(url_ok("HTTPS://Jev.Example.com", false, true));
+    assert!(!url_ok("https://jev.example.com", true, false));
+}
+
+#[test]
+fn gog_140_default_config_refuses_and_never_reads_key_or_calls() {
+    let fake = Fake::default();
+    let mut cfg = JevConfig::new("http://jev.example.com", "jev-m1");
+    assert!(!cfg.allow_insecure_loopback_http);
+    cfg.allow_insecure_loopback_http = true; // opt-in does not legitimise a remote host
+    let p = JevHttpProvider::new(
+        cfg,
+        fake.clone(),
+        Box::new(StaticSecret::some(KEY)),
+        replay_for("q1"),
+    );
+    let clock = VirtualMonotonicClock::new();
+    let out = p.query_detailed(&q("q1"), &clock);
+    assert!(matches!(
+        out.source,
+        QuerySource::Fallback(JevError::InsecureEndpoint { .. })
+    ));
+    assert!(out.result.is_ok(), "offline Replay fallback keeps working");
+    assert_eq!(
+        fake.calls(),
+        0,
+        "no request, so no Authorization header leaks"
+    );
+    assert_eq!(p.events()[0].class, "insecure_endpoint");
+}
+
+#[test]
+fn gog_140_loopback_http_without_opt_in_is_refused_even_without_credentials() {
+    let fake = Fake::default();
+    let cfg = JevConfig::new("http://127.0.0.1:8080", "jev-m1");
+    let p = JevHttpProvider::new(
+        cfg,
+        fake.clone(),
+        Box::new(StaticSecret::some(KEY)),
+        ReplaySystemOneProvider::default(),
+    );
+    let clock = VirtualMonotonicClock::new();
+    let out = p.query_detailed(&q("q1"), &clock);
+    assert!(matches!(
+        out.source,
+        QuerySource::Fallback(JevError::InsecureEndpoint { .. })
+    ));
+    assert_eq!(fake.calls(), 0);
+}
+
+#[test]
+fn gog_140_insecure_endpoint_does_not_trip_breaker() {
+    let fake = Fake::default();
+    let p = JevHttpProvider::new(
+        JevConfig::new("http://jev.example.com", "jev-m1"),
+        fake,
+        Box::new(StaticSecret::some(KEY)),
+        ReplaySystemOneProvider::default(),
+    );
+    let clock = VirtualMonotonicClock::new();
+    for _ in 0..10 {
+        let out = p.query_detailed(&q("q1"), &clock);
+        assert!(matches!(
+            out.source,
+            QuerySource::Fallback(JevError::InsecureEndpoint { .. })
+        ));
+    }
+}
+
+#[test]
+fn gog_140_debug_never_prints_token_or_url_in_errors() {
+    let fake = Fake::default();
+    let p = provider(&fake, Some(KEY), ReplaySystemOneProvider::default());
+    let dbg = format!("{p:?} {:?}", p.config_for_test());
+    assert!(!dbg.contains(KEY) && !dbg.contains("SECRET"));
+    let err = JevConfig::new("http://evil.example/?k=topsecret", "m")
+        .validate_endpoint()
+        .unwrap_err();
+    let shown = format!("{err} {err:?}");
+    assert!(!shown.contains("topsecret") && !shown.contains("evil.example"));
 }

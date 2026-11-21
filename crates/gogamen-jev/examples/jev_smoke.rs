@@ -21,8 +21,11 @@ fn main() {
         return;
     };
     let model = std::env::var("GOGAMEN_JEV_MODEL").unwrap_or_else(|_| "jev-default".into());
+    let mut cfg = JevConfig::new(url, model);
+    // Loopback http is opt-in; remote endpoints must be https (feature `https`).
+    cfg.allow_insecure_loopback_http = std::env::var("GOGAMEN_JEV_ALLOW_LOOPBACK_HTTP").is_ok();
     let provider = JevHttpProvider::new(
-        JevConfig::new(url, model),
+        cfg,
         UreqTransport,
         Box::new(EnvSecret::new("GOGAMEN_JEV_KEY")),
         ReplaySystemOneProvider::default(),

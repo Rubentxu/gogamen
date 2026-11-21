@@ -2,7 +2,8 @@
 //!
 //! * Default build: contract logic, breaker, redaction, Replay fallback and a transport trait,
 //!   with **no** network code. `gogamen-core` and `gogamen-cli` do not depend on this crate.
-//! * Feature `http`: plain-HTTP transport on `ureq`. Feature `https`: adds TLS.
+//! * Feature `http`: HTTP transport on `ureq` (no TLS). Feature `https`: adds TLS. Remote
+//!   cleartext `http://` is refused; loopback http needs `allow_insecure_loopback_http`.
 //!
 //! The HTTP contract (`gogamen-jev/1`) is a **hypothesis** defined by this repo; no verified
 //! Jev documentation was available. See the crate README.
@@ -12,6 +13,7 @@ pub mod error;
 pub mod provider;
 pub mod secret;
 pub mod transport;
+pub mod url_policy;
 pub mod wire;
 
 pub use breaker::{BreakerConfig, CircuitBreaker};

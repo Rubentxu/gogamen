@@ -11,6 +11,12 @@ use std::time::Duration;
 pub enum JevError {
     /// No credential could be resolved from the configured secret source (no call was made).
     MissingCredentials,
+    /// The endpoint violates the transport-security policy; no call was made and no credential
+    /// was read.
+    InsecureEndpoint {
+        /// Static description of the violated rule (never the URL).
+        reason: &'static str,
+    },
     /// The circuit breaker is open; no call was made.
     CircuitOpen {
         /// Remaining cool-down on the injected monotonic clock.
@@ -71,7 +77,9 @@ impl JevError {
             Self::UnexpectedStatus { .. } => "jev: unexpected http status",
             Self::Transport => "jev: transport failure",
             Self::MalformedJson => "jev: malformed json",
-            Self::Schema { reason } | Self::CapabilityMismatch { reason } => reason,
+            Self::Schema { reason }
+            | Self::CapabilityMismatch { reason }
+            | Self::InsecureEndpoint { reason } => reason,
             Self::ContractVersionMismatch => "jev: contract version mismatch",
             Self::ModelMismatch => "jev: model mismatch",
         }
@@ -81,6 +89,7 @@ impl JevError {
     pub const fn class(&self) -> &'static str {
         match self {
             Self::MissingCredentials => "missing_credentials",
+            Self::InsecureEndpoint { .. } => "insecure_endpoint",
             Self::CircuitOpen { .. } => "circuit_open",
             Self::Timeout => "timeout",
             Self::Auth { .. } => "auth",
