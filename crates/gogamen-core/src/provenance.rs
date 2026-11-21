@@ -560,6 +560,35 @@ impl ProvenanceTracker {
     }
 }
 
+/// Where a quantity in an agent endowment comes from.
+///
+/// Minimal, reusable marker (GOG-182): it lets reports distinguish what was handed to the
+/// agent from what it computed or measured. It carries no authority: it is never a permission
+/// and never feeds an `ActionGuard` decision.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub enum EndowmentProvenance {
+    /// Handed in by the designer or the task specification.
+    Given,
+    /// Computed deterministically from other quantities (e.g. a freedom field over a model).
+    Derived,
+    /// Estimated from experience by a learner.
+    Learned,
+    /// Observed directly through a sensor or an experiment.
+    Measured,
+}
+
+impl EndowmentProvenance {
+    /// Stable label for reports.
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Given => "given",
+            Self::Derived => "derived",
+            Self::Learned => "learned",
+            Self::Measured => "measured",
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

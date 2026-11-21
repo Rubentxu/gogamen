@@ -323,16 +323,37 @@ pub struct TransitionSample {
     state_bucket: usize,
     action_idx: usize,
     next_state_bucket: usize,
+    /// `true` when the transition ended the episode in failure (additive field; `false` for
+    /// every sample built with [`TransitionSample::new`]).
+    terminal_failure: bool,
 }
 
 impl TransitionSample {
-    /// Crea una muestra discreta de transición.
+    /// Crea una muestra discreta de transición (no terminal).
     pub const fn new(state_bucket: usize, action_idx: usize, next_state_bucket: usize) -> Self {
         Self {
             state_bucket,
             action_idx,
             next_state_bucket,
+            terminal_failure: false,
         }
+    }
+
+    /// Creates a sample whose transition ended in terminal failure; `failure_bucket` is the
+    /// absorbing failure bucket reserved by the caller's bucket layout (see
+    /// `learned_model::TabularScale`).
+    pub const fn failure(state_bucket: usize, action_idx: usize, failure_bucket: usize) -> Self {
+        Self {
+            state_bucket,
+            action_idx,
+            next_state_bucket: failure_bucket,
+            terminal_failure: true,
+        }
+    }
+
+    /// Returns `true` if the observed transition was a terminal failure.
+    pub const fn is_terminal_failure(&self) -> bool {
+        self.terminal_failure
     }
 
     /// Devuelve el bucket del estado de origen.
@@ -374,6 +395,23 @@ impl TransitionObservation {
             evidence_ref,
             sensor_message: None,
             sample: TransitionSample::new(state_bucket, action_idx, next_state_bucket),
+        }
+    }
+
+    /// Creates an observation of a transition that ended in terminal failure
+    /// (see [`TransitionSample::failure`]).
+    pub const fn failure(
+        observation_id: ObservationId,
+        evidence_ref: EvidenceRef,
+        state_bucket: usize,
+        action_idx: usize,
+        failure_bucket: usize,
+    ) -> Self {
+        Self {
+            observation_id,
+            evidence_ref,
+            sensor_message: None,
+            sample: TransitionSample::failure(state_bucket, action_idx, failure_bucket),
         }
     }
 
