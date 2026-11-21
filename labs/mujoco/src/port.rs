@@ -11,6 +11,10 @@ pub enum PortError {
     SnapshotMismatch(String),
     /// Backend (process, protocol, engine) failure.
     Backend(String),
+    /// A backend call did not answer within its deadline (the backend is then closed).
+    Timeout(String),
+    /// The backend is closed or broken (earlier timeout, EOF or shutdown); no further calls.
+    Closed(String),
 }
 
 impl fmt::Display for PortError {
@@ -19,6 +23,8 @@ impl fmt::Display for PortError {
             Self::InvalidArgument(m) => write!(f, "invalid argument: {m}"),
             Self::SnapshotMismatch(m) => write!(f, "snapshot mismatch: {m}"),
             Self::Backend(m) => write!(f, "backend error: {m}"),
+            Self::Timeout(m) => write!(f, "backend timeout: {m}"),
+            Self::Closed(m) => write!(f, "backend closed: {m}"),
         }
     }
 }
