@@ -5,6 +5,8 @@
 //! [`OrbitProjector`] y [`orbit_projection`] no necesitan Studio: ejecutan headless con
 //! `gogamen_projection::run_headless`.
 
+pub mod metric;
+
 use std::sync::Arc;
 
 use gogamen_core::{EpistemicKind, Tick};
