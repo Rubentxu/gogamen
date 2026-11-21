@@ -560,11 +560,20 @@ impl<const N: usize> BoundedControlCycle<N> {
 mod tests {
     use super::*;
     use std::alloc::{GlobalAlloc, Layout, System};
-    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::cell::Cell;
+    use std::thread_local;
 
     struct CountingAllocator;
 
-    static ALLOC_CALLS: AtomicUsize = AtomicUsize::new(0);
+    // Contador por hilo: los tests del harness corren en paralelo y el contador global
+    // mezclaba asignaciones ajenas a la región medida.
+    thread_local! {
+        static ALLOC_CALLS: Cell<usize> = const { Cell::new(0) };
+    }
+
+    fn alloc_calls() -> usize {
+        ALLOC_CALLS.with(Cell::get)
+    }
 
     #[global_allocator]
     static GLOBAL: CountingAllocator = CountingAllocator;
@@ -572,7 +581,7 @@ mod tests {
     #[allow(unsafe_code)]
     unsafe impl GlobalAlloc for CountingAllocator {
         unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
-            ALLOC_CALLS.fetch_add(1, Ordering::Relaxed);
+            ALLOC_CALLS.with(|calls| calls.set(calls.get() + 1));
             unsafe { System.alloc(layout) }
         }
 
@@ -583,7 +592,7 @@ mod tests {
 
     #[test]
     fn ac1_fixed_ring_buffer_overwrites_in_o1_without_heap() {
-        let before = ALLOC_CALLS.load(Ordering::Relaxed);
+        let before = alloc_calls();
 
         let mut ring: FixedRingBuffer<u32, 3> = FixedRingBuffer::new();
         assert!(ring.is_empty());
@@ -607,7 +616,7 @@ mod tests {
         assert_eq!(ring.pop(), None);
         assert!(ring.is_empty());
 
-        let after = ALLOC_CALLS.load(Ordering::Relaxed);
+        let after = alloc_calls();
         assert_eq!(
             before, after,
             "FixedRingBuffer must perform 0 heap allocations"
@@ -622,7 +631,7 @@ mod tests {
         let mut cycle_a: BoundedControlCycle<8> = BoundedControlCycle::new(config, guard);
         let mut cycle_b: BoundedControlCycle<8> = BoundedControlCycle::new(config, guard);
 
-        let before = ALLOC_CALLS.load(Ordering::Relaxed);
+        let before = alloc_calls();
 
         let out_a1 = cycle_a.step(0.0, 1.0, 120, 1_000);
         let out_b1 = cycle_b.step(0.0, 1.0, 120, 1_000);
@@ -656,7 +665,7 @@ mod tests {
         assert_eq!(cycle_a.max_observed_micros(), 1_250);
         assert_eq!(cycle_a.history().len(), 4);
 
-        let after = ALLOC_CALLS.load(Ordering::Relaxed);
+        let after = alloc_calls();
         assert_eq!(
             before, after,
             "BoundedControlCycle::step must perform 0 heap allocations"
