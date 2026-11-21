@@ -14,6 +14,21 @@ Para ejecutar la CLI mínima de verificación:
 cargo run -p gogamen-cli --offline -- --version
 ```
 
+### Primer recibo de experimento (Kart puro vs azar vs techo dirigido)
+
+Sin red, sin JVM y sin JS externo. Un comando ejecuta el experimento y escribe `receipt.json` (especificación y hash, hipótesis prerregistradas y su hash, semillas, versión, libro de dotación, resultados por episodio, veredictos) y `report.html` (autónomo: libro de dotación, veredictos, curvas media ± desviación por semilla, episodios fallidos). Otro comando lo verifica re-ejecutando y comparando hashes; falla con la ruta de la primera diferencia si el recibo fue manipulado o no reproduce:
+
+```sh
+cargo run -p gogamen-cli --release --offline -- run-experiment --out-dir out/kart
+cargo run -p gogamen-cli --release --offline -- verify-receipt --receipt-file out/kart/receipt.json
+```
+
+Código: `crates/gogamen-cli/src/receipt.rs` y `report.rs`; prueba decisiva: `cargo test -p gogamen-cli --offline receipt_roundtrip`. Un veredicto sin hash prerregistrado nunca es `SUPPORTED` (`--no-prereg` lo demuestra).
+
+Tiempo medido (máquina de desarrollo de 9 hilos, Linux, caché de crates ya presente, `--offline`): build en frío de `gogamen-cli --release` con directorio target vacío = 21 s; `run-experiment` = 1,7 s; `verify-receipt` = 1,6 s. Total medido hasta el primer recibo: unos 23 s. NO medido: `git clone`, descarga de crates con red, instalación del toolchain `1.99.0` ni máquinas distintas; no extrapolar. Los 64 bits FNV-1a detectan ediciones y no-reproducibilidad, no son firmas criptográficas.
+
+Demo de transferencia offline (GOG-178): `cargo run -p gogamen-cli --release --offline -- run-experiment --demo grid-transfer --out-dir out/demo` toma la spec cognitiva emitida por el DSL Kotlin (`spec/golden/cognitive_dsl/positive/h0.json`, o `--dsl-file`), la parsea y hashea en Rust, entrena un modelo tabular solo en el mapa Grid A, lo usa con el planificador FMC en el mapa B no visto (semillas holdout) y lo compara con baselines (aleatorio, prior sin entrenar, greedy tabular); el techo privilegiado se informa aparte. Emite `receipt.json` (spec hash, semillas, versiones/checksums del modelo, resultados, trazas por decisión, límites, veredicto) y `report.html`; `verify-receipt --receipt-file out/demo/receipt.json` lo re-ejecuta. Sin UI, LLM, JVM ni red en runtime. El veredicto puede ser negativo y se informa tal cual (en la corrida de referencia: TRANSFER_NOT_SUPPORTED, 0/6 frente a 0/6 del baseline aleatorio). Límites: un solo par de mapas y 6 semillas; el mundo/semillas de la demo aún no se derivan de la spec; variante Kart no incluida.
+
 Release MVP pre-1.0 (local, sin publicación automática): ver [`docs/RELEASE.md`](docs/RELEASE.md) y `scripts/release_check.sh`.
 
 ---
