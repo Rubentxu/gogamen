@@ -1,0 +1,141 @@
+# Escalon 2 (push a main / merge): workspace completo + integracion core/cli + Kotlin DSL + matriz de features.
+name: ci-main
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-main-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: never
+  CARGO_INCREMENTAL: "0"
+
+jobs:
+  workspace:
+    name: workspace tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-rust
+        with:
+          cache-suffix: workspace
+      # gogamen-lab-ros2 needs a ROS2 toolchain (covered by scripts/ros2_contract_smoke.sh): excluded explicitly.
+      - name: cargo test --workspace (minus ros2)
+        run: |
+          set -o pipefail
+          cargo test --locked --workspace --exclude gogamen-lab-ros2 2>&1 | tee ci-logs/workspace-test.log
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: logs-workspace
+          path: ci-logs/
+          retention-days: 7
+      - uses: ./.github/actions/finish
+        if: always()
+        with:
+          name: workspace tests
+          status: "${{ job.status }}"
+
+  core-integration:
+    name: core/cli integration
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-rust
+        with:
+          cache-suffix: integration
+      - name: Build release CLI and run offline labs / Kotlin golden without JVM
+        run: |
+          set -o pipefail
+          {
+            cargo build --locked --release -p gogamen-cli
+            B=target/release/gogamen
+            $B run-grid --ticks 20 --seed 42
+            $B run-language-world --seed 42
+            $B run-spec --fixture --ticks 10 --seed 42
+            $B run-spec --json-file crates/gogamen-spec/fixtures/language_world_canonical_v0.json --ticks 10 --seed 42
+            cargo test --locked -p gogamen-sdk --test capability_conformance --test external_consumer --test external_extension
+            cargo test --locked -p gogamen-runtime --test language_world_kotlin_golden --test frontend_equivalence
+            GOGAMEN_BIN="$PWD/$B" PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=python python3 -m unittest discover -s python/tests
+          } 2>&1 | tee ci-logs/core-integration.log
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: logs-core-integration
+          path: ci-logs/
+          retention-days: 7
+      - uses: ./.github/actions/finish
+        if: always()
+        with:
+          name: core/cli integration
+          status: "${{ job.status }}"
+
+  kotlin:
+    name: kotlin DSL (gradle test)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-rust   # the Kotlin tests use the Rust validator as oracle (cargo run -p gogamen-cli)
+        with:
+          cache-suffix: kotlin
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.14.5"
+      - name: gradle test
+        working-directory: kotlin
+        run: |
+          set -o pipefail
+          gradle test 2>&1 | tee ../ci-logs/kotlin.log
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: logs-kotlin
+          path: |
+            ci-logs/
+            kotlin/build/reports/
+            kotlin/build/test-results/
+          retention-days: 7
+      - uses: ./.github/actions/finish
+        if: always()
+        with:
+          name: kotlin
+          status: "${{ job.status }}"
+
+  features:
+    name: features
+    uses: ./.github/workflows/features.yml
+
+  gate:
+    name: gate (main)
+    if: always()
+    needs: [workspace, core-integration, kotlin, features]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Fail unless every required job succeeded
+        env:
+          RESULTS: |
+            workspace=${{ needs.workspace.result }}
+            core-integration=${{ needs.core-integration.result }}
+            kotlin=${{ needs.kotlin.result }}
+            features=${{ needs.features.result }}
+        run: |
+          bad=0
+          while IFS= read -r l; do
+            [ -z "$l" ] && continue
+            echo "$l"; [ "${l#*=}" = success ] || bad=1
+          done <<< "$RESULTS"
+          { echo "### main gate"; echo '```'; echo "$RESULTS"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          if [ "$bad" = 1 ]; then echo "GATE FAIL: skipped/cancelled/failed jobs are never a PASS" >&2; exit 1; fi

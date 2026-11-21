@@ -51,6 +51,28 @@ Rust fixture and replays deterministically). The JVM-free path is therefore:
 available in the validated environment, and Gradle runs offline there, so a native Kotlin binary was not
 attempted. What runs without a JVM is the Kotlin-*generated* JSON, not the Kotlin compiler/DSL.
 
+## CI (GitHub Actions, escalonado por riesgo)
+
+No workflow publica nada (permisos `contents: read`). Todos usan acciones fijadas a version mayor, toolchain de
+`rust-toolchain.toml` y caches con clave `toolchain + hash(Cargo.lock)` (`.github/actions/setup-rust`); cada job
+escribe duracion en `$GITHUB_STEP_SUMMARY` y sube logs como artefacto si falla.
+
+| Escalon | Disparador | Workflow | Contenido |
+|---|---|---|---|
+| PR | `pull_request` -> main (cancela ejecuciones obsoletas) | `.github/workflows/ci-pr.yml` | `fmt` + `clippy -D warnings` + `cargo test` solo de los crates afectados (`scripts/ci_affected.py`: `git diff base...head` -> crates + dependientes inversos; fallback a todo el workspace si cambian `Cargo.lock`, `Cargo.toml` raiz, `rust-toolchain.toml`, `deny.toml`, `scripts/`, `.github/`). Sin crates afectados se informa `NOT_RUN` (no PASS). Job final `gate`. |
+| Merge | `push` a main | `.github/workflows/ci-main.yml` | `cargo test --workspace`, integracion core/cli (CLI release, labs, golden Kotlin sin JVM, conformance SDK, cliente Python), Kotlin `gradle test`, matriz de features, `gate`. |
+| Release | tag `v*` o `workflow_dispatch` | `.github/workflows/release.yml` | selftest + `scripts/release_check.sh` integro (cualquier exit != 0 falla: 1 FAIL, 3 REQUIRED NOT_RUN), matriz de features, `gate`. |
+| Features | reutilizable (main y release) | `.github/workflows/features.yml` | REQUIRED: `gogamen-jev` `http` y `https`, `gogamen-sdk` `wasm`, `gogamen-studio` `window` (clippy + tests lib; `tour_real` necesita display y no se cuenta como PASS). OPTIONAL (`continue-on-error`, fuera del gate): `gogamen-lab-mujoco` `mujoco-sidecar`. |
+
+Un job omitido, cancelado o fallido nunca es PASS: cada `gate` (`if: always()`, `needs`) falla salvo que todos los
+requeridos terminen en `success`.
+
+Decisiones: `labs/ros2` (`gogamen-lab-ros2`) se excluye de fmt/clippy/tests de CI: tiene diferencias de rustfmt
+preexistentes (no reformateadas aqui) y requiere ROS2 (`scripts/ros2_contract_smoke.sh`). Cuando se reformatee,
+quitarlo de `EXCLUDED` en `scripts/ci_affected.py`. El gate Kotlin de release precalienta la cache de Gradle porque
+`release_check.sh` usa `gradle --offline`. Estado: workflows validados con `actionlint` y ejecucion local de los
+comandos clave; **no ejecutados en GitHub** (NOT_RUN).
+
 ## Release check (local CI)
 
 ```sh
@@ -71,6 +93,57 @@ golden fixtures; Kotlin DSL gradle tests; optional MuJoCo sidecar; real-window S
 Scientific/test failures are reported as-is; do not edit expectations to turn a step green.
 `deny.toml` ignores only `RUSTSEC-2024-0436` (`paste` unmaintained, transitive of the optional rerun exporter,
 not a vulnerability); the advisory DB is the local cache and may be stale.
+
+## Medicion de gates (GOG-145: medir antes de fragmentar crates)
+
+Hallazgo verificado: `release_check.sh` (modo completo) invoca `cargo clippy`, `cargo test` y varios `cargo test -p`
+sobre las mismas listas de crates, sobre un `CARGO_TARGET_DIR` compartido; los perfiles `check`/`clippy`/`test`/`release`
+generan artefactos distintos, de modo que hay recompilacion por perfil. Los filtros de tests de los pasos 7-8 son
+distintos por invocacion (lo comprueba el selftest). El coste real solo se conoce midiendo.
+
+Mecanismo (sin dependencias nuevas):
+
+- `scripts/release_check.sh` escribe `$LOGDIR/timings.tsv` (`gate, status, class, seconds`; la ruta se imprime en el
+  resumen). `seconds` es el tiempo de pared desde que acabo el gate anterior; las filas `NOT_RUN` llevan `NA`, nunca
+  una duracion, y no entran en los percentiles.
+- `scripts/measure_gates.sh [-n N<=10] [-w] [-o out.tsv] ["nombre::comando" ...]` mide gates baratos N veces
+  (`-w` = un calentamiento sin medir). Nunca ejecuta el workspace completo.
+- `scripts/gate_stats.py FILE.tsv ...` calcula n, p50, p95 (nearest-rank), min, max por gate; los no-PASS se cuentan aparte.
+- En CI los jobs ya escriben duracion en `$GITHUB_STEP_SUMMARY`; para p50/p95 de CI, concatenar los TSV de
+  `release_check.sh` de varias ejecuciones y pasarlos a `gate_stats.py` (sin meta de speedup arbitraria).
+
+Baseline WARM medida (3 muestras, `CARGO_TARGET_DIR=/var/mnt/DiscoChino2-fast/cargo-targets`, `--offline`, maquina de
+desarrollo, tiempos de pared en segundos):
+
+| Gate (target ya compilado) | n | p50 | p95 | min | max |
+|---|---|---|---|---|---|
+| `cargo check -p gogamen-core` | 3 | 0.319 | 0.337 | 0.310 | 0.337 |
+| `cargo test -p gogamen-spec --lib` | 3 | 0.321 | 0.324 | 0.313 | 0.324 |
+| `cargo check -p gogamen-core -p gogamen-spec` | 3 | 0.311 | 0.319 | 0.305 | 0.319 |
+| `cargo tree -p gogamen-core -p gogamen-cli` (frontera) | 3 | 0.247 | 0.251 | 0.241 | 0.251 |
+| tras `touch` de `gogamen-spec/src/lib.rs`: `cargo check -p gogamen-spec` | 3 | 0.426 | 0.427 | 0.409 | 0.427 |
+| tras `touch` de `gogamen-spec/src/lib.rs`: `cargo check -p gogamen-cli` (spec + dependientes) | 3 | 0.853 | 2.534 | 0.851 | 2.534 |
+
+Son baselines no-op/incrementales pequenas: fijan el coste de arranque/fingerprint de cargo, no el de un release
+completo. **NOT_RUN (explicito, no PASS):** baseline *clean* (target vacio; no viable/acotada aqui), baseline
+Kotlin/`gradle test` (no medida en este encargo) y la suite completa `release_check.sh`/`cargo test --workspace`
+(prohibida por coste). Se miden en CI/maquina de release con el TSV.
+
+Smoke < completo sin perder gates (evidencia): (1) en el selftest con stubs `--fast` ejecuta 5 gates (PASS) frente a
+32 del modo completo, y todo gate no ejecutado aparece como fila `NOT_RUN` (verificado, junto con que el TSV no da
+duracion a los `NOT_RUN` y que `gate_stats.py` los excluye de los percentiles); `--fast` nunca emite veredicto de
+release. (2) Seleccion por diff en PR con `scripts/ci_affected.py affected BASE HEAD` sobre commits reales:
+`b5a7577` (solo `README.md`) -> 0 crates (el job informa `NOT_RUN`); `f59c648` -> 3 de 22 crates (afectados +
+dependientes inversos); `8b47c6d` (cambia `scripts/`/`rust-toolchain.toml`) -> `ALL`. Cambios de infraestructura
+vuelven siempre al conjunto completo, y `main`/release siguen corriendo el conjunto completo.
+
+Comparacion y decision (solo se adopta mejora medida):
+
+| Opcion | Evidencia medida | Decision |
+|---|---|---|
+| Incremental cargo por crate (`-p` del crate tocado) vs crate + dependientes | 0.426 s vs 0.853 s (p50) tras tocar `gogamen-spec`: ya proporcional al radio de impacto | Mantener (ya implementado con `ci_affected.py`) |
+| Cache (`target`/registry en CI, clave toolchain+`Cargo.lock`) | Warm no-op ~0.3 s local; beneficio en CI no medido (no ejecutado en GitHub) | Sin cambio; medir con el TSV antes de tocar |
+| Particion por responsabilidad (mas crates) | Ninguna medicion muestra que la compilacion incremental por crate sea cuello de botella (arranque ~0.3 s, check incremental < 1 s) | **NO cambiar la estructura de crates**; reabrir solo con p50/p95 de CI que lo justifiquen |
 
 ## Safety and time limits
 

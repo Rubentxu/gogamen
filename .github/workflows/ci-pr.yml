@@ -1,0 +1,214 @@
+# Escalon 1 (PR): rapido y barato. fmt + clippy + tests SOLO de los crates afectados
+# (scripts/ci_affected.py: git diff base...head -> crates + dependientes inversos; fallback ALL si cambian
+# Cargo.lock / Cargo.toml raiz / rust-toolchain.toml / deny.toml / scripts/ / .github/).
+name: ci-pr
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-pr-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: never
+  CARGO_INCREMENTAL: "0"
+
+jobs:
+  plan:
+    name: plan (affected crates)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      scope: ${{ steps.plan.outputs.scope }}
+      flags: ${{ steps.plan.outputs.flags }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: ./.github/actions/setup-rust
+        with:
+          cache-suffix: plan
+          cache-target: "false"
+      - id: plan
+        run: |
+          base="${{ github.event.pull_request.base.sha }}"; head="${{ github.event.pull_request.head.sha }}"
+          aff="$(python3 -I -B scripts/ci_affected.py affected "$base" "$head")"
+          flags="$(python3 -I -B scripts/ci_affected.py flags "$base" "$head")"
+          if [ "$aff" = ALL ]; then scope=ALL; elif [ -z "$aff" ]; then scope=NONE; else scope=LIST; fi
+          echo "scope=$scope" >> "$GITHUB_OUTPUT"; echo "flags=$flags" >> "$GITHUB_OUTPUT"
+          { echo "### Affected crates"; echo "- scope: **$scope**"; echo "- packages: \`$aff\`"; echo "- flags: \`$flags\`"; } >> "$GITHUB_STEP_SUMMARY"
+      - uses: ./.github/actions/finish
+        if: always()
+        with:
+          name: plan
+          status: "${{ job.status }}"
+
+  fmt:
+    name: fmt
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-rust
+        with:
+          cache-suffix: fmt
+          cache-target: "false"
+      # labs/ros2 (gogamen-lab-ros2) has PRE-EXISTING rustfmt diffs and is excluded from the fmt gate
+      # (not reformatted here); see docs/RELEASE.md "CI". Everything else must be fmt-clean.
+      - name: cargo fmt --check (workspace minus gogamen-lab-ros2)
+        run: |
+          set -o pipefail
+          # shellcheck disable=SC2046  # intentional word splitting into -p flags
+          cargo fmt --check $(python3 -I -B scripts/ci_affected.py fmt-flags) 2>&1 | tee ci-logs/fmt.log
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: logs-fmt
+          path: ci-logs/
+          retention-days: 7
+      - uses: ./.github/actions/finish
+        if: always()
+        with:
+          name: fmt
+          status: "${{ job.status }}"
+
+  clippy:
+    name: clippy (affected)
+    needs: plan
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-rust
+        with:
+          cache-suffix: clippy
+      - name: cargo clippy -D warnings
+        if: needs.plan.outputs.scope != 'NONE'
+        run: |
+          set -o pipefail
+          cargo clippy --locked ${{ needs.plan.outputs.flags }} --all-targets -- -D warnings 2>&1 | tee ci-logs/clippy.log
+      - name: Report NOT_RUN (nothing affected)
+        if: needs.plan.outputs.scope == 'NONE'
+        run: |
+          echo "NOT_RUN: no Rust crate affected by this PR (this is NOT a PASS of clippy)" | tee -a "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: logs-clippy
+          path: ci-logs/
+          retention-days: 7
+      - uses: ./.github/actions/finish
+        if: always()
+        with:
+          name: clippy
+          status: "${{ job.status }}"
+
+  test:
+    name: test (affected)
+    needs: plan
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-rust
+        with:
+          cache-suffix: test
+      - name: cargo test (affected crates)
+        if: needs.plan.outputs.scope != 'NONE'
+        run: |
+          set -o pipefail
+          cargo test --locked ${{ needs.plan.outputs.flags }} 2>&1 | tee ci-logs/test.log
+      - name: Report NOT_RUN (nothing affected)
+        if: needs.plan.outputs.scope == 'NONE'
+        run: |
+          echo "NOT_RUN: no Rust crate affected by this PR (this is NOT a PASS of the tests)" | tee -a "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: logs-test
+          path: ci-logs/
+          retention-days: 7
+      - uses: ./.github/actions/finish
+        if: always()
+        with:
+          name: test
+          status: "${{ job.status }}"
+
+  contract:
+    name: canonical JSON corpus (Rust+Kotlin, only if contract changed)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: changed
+        run: |
+          base="${{ github.event.pull_request.base.sha }}"; head="${{ github.event.pull_request.head.sha }}"
+          run="$(python3 -I -B scripts/ci_affected.py contract "$base" "$head")"
+          echo "run=$run" >> "$GITHUB_OUTPUT"
+          echo "- canonical JSON contract: **$run**" >> "$GITHUB_STEP_SUMMARY"
+      - uses: ./.github/actions/setup-rust
+        if: steps.changed.outputs.run == 'RUN'
+        with:
+          cache-suffix: contract
+      - uses: actions/setup-java@v4
+        if: steps.changed.outputs.run == 'RUN'
+        with:
+          distribution: temurin
+          java-version: "21"
+      - uses: gradle/actions/setup-gradle@v4
+        if: steps.changed.outputs.run == 'RUN'
+        with:
+          gradle-version: "8.14.5"
+      - name: corpus tests (Rust + Kotlin, same golden files)
+        if: steps.changed.outputs.run == 'RUN'
+        run: |
+          set -o pipefail
+          cargo test --locked -p gogamen-spec gog_152 2>&1 | tee ci-logs/contract-rust.log
+          (cd kotlin && gradle test --tests '*Gog152*' 2>&1 | tee ../ci-logs/contract-kotlin.log)
+      - name: Report NOT_RUN (contract unchanged)
+        if: steps.changed.outputs.run != 'RUN'
+        run: |
+          echo "NOT_RUN: canonical JSON contract files unchanged (this is NOT a PASS of the corpus tests)" | tee -a "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: logs-contract
+          path: |
+            ci-logs/
+            kotlin/build/reports/
+          retention-days: 7
+      - uses: ./.github/actions/finish
+        if: always()
+        with:
+          name: contract
+          status: "${{ job.status }}"
+
+  gate:
+    name: gate (PR)
+    if: always()
+    needs: [plan, fmt, clippy, test, contract]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Fail unless every required job succeeded
+        env:
+          RESULTS: |
+            plan=${{ needs.plan.result }}
+            fmt=${{ needs.fmt.result }}
+            clippy=${{ needs.clippy.result }}
+            test=${{ needs.test.result }}
+            contract=${{ needs.contract.result }}
+        run: |
+          bad=0
+          while IFS= read -r l; do
+            [ -z "$l" ] && continue
+            echo "$l"; [ "${l#*=}" = success ] || bad=1
+          done <<< "$RESULTS"
+          { echo "### PR gate"; echo '```'; echo "$RESULTS"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          if [ "$bad" = 1 ]; then echo "GATE FAIL: skipped/cancelled/failed jobs are never a PASS" >&2; exit 1; fi

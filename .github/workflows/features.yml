@@ -1,0 +1,108 @@
+# Matriz de features criticas (reutilizable: ci-main y release). Un job omitido/cancelado/fallido NUNCA es PASS:
+# el job `gate` falla salvo que TODOS los requeridos sean `success`. MuJoCo es OPTIONAL (continue-on-error explicito),
+# queda fuera del gate y se informa aparte.
+name: features
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: never
+  CARGO_INCREMENTAL: "0"
+
+jobs:
+  features:
+    name: feature (${{ matrix.name }}, REQUIRED)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: jev-http
+            apt: ""
+            cmd: cargo test --locked -p gogamen-jev --features http
+          - name: jev-https
+            apt: ""
+            cmd: cargo test --locked -p gogamen-jev --features https
+          - name: sdk-wasm
+            apt: ""
+            cmd: cargo test --locked -p gogamen-sdk --features wasm
+          # Studio window: compiles the real eframe/egui backend + lib tests. tour_real/window_real need a display
+          # and print NOT_RUN without one, so they are deliberately NOT run here (never counted as PASS).
+          - name: studio-window
+            apt: libxkbcommon-dev libwayland-dev libx11-dev libxcursor-dev libxrandr-dev libxi-dev libgl1-mesa-dev
+            cmd: cargo clippy --locked -p gogamen-studio --features window --all-targets -- -D warnings && cargo test --locked -p gogamen-studio --features window --lib
+    steps:
+      - uses: actions/checkout@v4
+      - name: System packages
+        if: matrix.apt != ''
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ${{ matrix.apt }}
+      - uses: ./.github/actions/setup-rust
+        with:
+          cache-suffix: feat-${{ matrix.name }}
+      - name: ${{ matrix.name }}
+        run: |
+          set -o pipefail
+          ( ${{ matrix.cmd }} ) 2>&1 | tee ci-logs/feature-${{ matrix.name }}.log
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: logs-feature-${{ matrix.name }}
+          path: ci-logs/
+          retention-days: 7
+      - uses: ./.github/actions/finish
+        if: always()
+        with:
+          name: "feature ${{ matrix.name }}"
+          status: "${{ job.status }}"
+
+  feature-mujoco-optional:
+    name: feature (mujoco sidecar, OPTIONAL)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    continue-on-error: true   # OPTIONAL: a failure here is reported but never blocks the gate
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-rust
+        with:
+          cache-suffix: feat-mujoco
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python3 -m pip install mujoco
+      - name: mujoco sidecar tests (OPTIONAL)
+        run: |
+          set -o pipefail
+          cargo test --locked -p gogamen-lab-mujoco --features mujoco-sidecar 2>&1 | tee ci-logs/feature-mujoco.log
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: logs-feature-mujoco
+          path: ci-logs/
+          retention-days: 7
+      - uses: ./.github/actions/finish
+        if: always()
+        with:
+          name: "feature mujoco (OPTIONAL)"
+          status: "${{ job.status }}"
+
+  gate:
+    name: features gate
+    if: always()
+    needs: [features]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Fail unless the whole required matrix succeeded
+        env:
+          RESULT: ${{ needs.features.result }}
+        run: |
+          {
+            echo "### Features gate"
+            echo "required matrix (jev-http, jev-https, sdk-wasm, studio-window): $RESULT"
+            echo "mujoco sidecar: OPTIONAL, not part of this gate (see its own job)"
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ "$RESULT" != success ]; then echo "GATE FAIL: required feature matrix = $RESULT" >&2; exit 1; fi

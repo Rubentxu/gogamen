@@ -1,0 +1,19 @@
+name: finish
+description: "Append job duration and status to the step summary (call with if: always())."
+inputs:
+  name:
+    required: true
+  status:
+    description: Pass `${{ job.status }}`.
+    required: true
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      run: |
+        t0="${CI_T0:-$(date +%s)}"; d=$(( $(date +%s) - t0 ))
+        {
+          echo "### ${{ inputs.name }}"
+          echo "- status: **${{ inputs.status }}**"
+          echo "- duration (since toolchain setup): ${d}s ($(( d / 60 ))m$(( d % 60 ))s)"
+        } >> "$GITHUB_STEP_SUMMARY"

@@ -1,0 +1,91 @@
+# Escalon 3 (release: tag v* o workflow_dispatch): scripts/release_check.sh INTEGRO (sin --fast/--quick/--skip-*).
+# Exit 0 = PASS; 1 = FAIL; 3 = REQUIRED NOT_RUN (no certifica); cualquier no-cero falla el job. Nada se publica.
+name: release
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: never
+  CARGO_INCREMENTAL: "0"
+
+jobs:
+  release-check:
+    name: scripts/release_check.sh (full)
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-rust
+        with:
+          cache-suffix: release
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-deny
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.14.5"
+      # release_check.sh runs gradle with --offline: warm the Gradle cache online first (failure here is not
+      # hidden: the release gate itself re-runs the tests and decides).
+      - name: Warm Gradle cache
+        working-directory: kotlin
+        run: gradle test || true
+      - name: Self-test of the release script
+        run: bash scripts/tests/release_check_selftest.sh
+      - name: release_check.sh (full)
+        run: |
+          set +e
+          bash scripts/release_check.sh 2>&1 | tee ci-logs/release_check.log
+          rc=${PIPESTATUS[0]}
+          { echo "### release_check.sh"; echo "- exit code: **$rc** (0 pass, 1 fail, 3 REQUIRED NOT_RUN, 2 usage)"; echo '```'; sed -n '/SUMMARY/,$p' ci-logs/release_check.log | tail -60; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          exit "$rc"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: release-check-logs
+          path: |
+            ci-logs/
+            /tmp/gogamen-release-check.*/
+          retention-days: 14
+      - uses: ./.github/actions/finish
+        if: always()
+        with:
+          name: release-check
+          status: "${{ job.status }}"
+
+  features:
+    name: features
+    uses: ./.github/workflows/features.yml
+
+  gate:
+    name: gate (release)
+    if: always()
+    needs: [release-check, features]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Fail unless every required job succeeded
+        env:
+          RESULTS: |
+            release-check=${{ needs.release-check.result }}
+            features=${{ needs.features.result }}
+        run: |
+          bad=0
+          while IFS= read -r l; do
+            [ -z "$l" ] && continue
+            echo "$l"; [ "${l#*=}" = success ] || bad=1
+          done <<< "$RESULTS"
+          { echo "### release gate"; echo '```'; echo "$RESULTS"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          if [ "$bad" = 1 ]; then echo "GATE FAIL: skipped/cancelled/failed jobs are never a PASS" >&2; exit 1; fi

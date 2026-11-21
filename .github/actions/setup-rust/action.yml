@@ -1,0 +1,38 @@
+name: setup-rust
+description: "Pinned Rust toolchain from rust-toolchain.toml plus cargo caches keyed by toolchain and Cargo.lock; fetches deps so --offline works."
+inputs:
+  cache-suffix:
+    description: Extra cache key part (job/scope) so unrelated jobs do not overwrite each other.
+    required: true
+  cache-target:
+    description: Cache ./target too ("true"/"false").
+    default: "true"
+runs:
+  using: composite
+  steps:
+    - name: Resolve toolchain and start timer
+      id: tc
+      shell: bash
+      run: |
+        ver="$(sed -n 's/^channel *= *"\(.*\)"/\1/p' rust-toolchain.toml)"
+        test -n "$ver" || { echo "cannot read channel from rust-toolchain.toml" >&2; exit 1; }
+        echo "version=$ver" >> "$GITHUB_OUTPUT"
+        echo "CI_T0=$(date +%s)" >> "$GITHUB_ENV"
+        mkdir -p ci-logs
+    - name: Install toolchain
+      shell: bash
+      run: rustup toolchain install "${{ steps.tc.outputs.version }}" --profile minimal -c rustfmt -c clippy
+    - name: Cache cargo registry and target
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.cargo/registry/index
+          ~/.cargo/registry/cache
+          ~/.cargo/git/db
+          ${{ inputs.cache-target == 'true' && 'target' || '' }}
+        key: cargo-${{ runner.os }}-rust${{ steps.tc.outputs.version }}-${{ inputs.cache-suffix }}-${{ hashFiles('Cargo.lock') }}
+        restore-keys: |
+          cargo-${{ runner.os }}-rust${{ steps.tc.outputs.version }}-${{ inputs.cache-suffix }}-
+    - name: Fetch dependencies (locked)
+      shell: bash
+      run: cargo fetch --locked
