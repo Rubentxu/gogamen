@@ -1,0 +1,8 @@
+[package]
+name = "gogamen-lab-life"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+gogamen-core = { path = "../../crates/gogamen-core" }

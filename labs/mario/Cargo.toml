@@ -1,0 +1,18 @@
+[package]
+name = "gogamen-lab-mario"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "GOG-62: EmulatorPort for a user-supplied Mario ROM (hash-gated, NOT_RUN without a backend) plus a free synthetic side-scroller fixture for CI. The fixture is NOT Mario."
+
+[dependencies]
+# Only used to hash user ROMs (SHA-256) and trace hashes; already in Cargo.lock.
+sha2 = "0.10"
+
+[[example]]
+name = "mario_run"
+path = "examples/mario_run.rs"
+
+[[example]]
+name = "coach_eval"
+path = "examples/coach_eval.rs"

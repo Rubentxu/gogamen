@@ -1,0 +1,9 @@
+[package]
+name = "gogamen-lab-grid"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+gogamen-core = { path = "../../crates/gogamen-core" }
+gogamen-spec = { path = "../../crates/gogamen-spec" }
