@@ -14,6 +14,25 @@ use gogamen_spec::{
 
 const DEFAULT_TICKS: u64 = 100;
 const DEFAULT_SEED: u64 = 42;
+/// Tope por defecto de bytes al leer un fichero JSON de entrada (alineado con `JsonLimits`).
+const DEFAULT_MAX_INPUT_BYTES: usize = gogamen_spec::DEFAULT_JSON_MAX_BYTES;
+
+/// Lee un fichero UTF-8 rechazando entradas que excedan `max_bytes` sin asignarlas enteras:
+/// lee como máximo `max_bytes + 1` bytes y falla si se alcanza ese último.
+fn read_bounded(path: &str, max_bytes: usize) -> Result<String, std::io::Error> {
+    use std::io::{Error, ErrorKind, Read};
+    let file = fs::File::open(path)?;
+    let limit = (max_bytes as u64).saturating_add(1);
+    let mut buf = Vec::new();
+    file.take(limit).read_to_end(&mut buf)?;
+    if buf.len() > max_bytes {
+        return Err(Error::new(
+            ErrorKind::InvalidData,
+            format!("la entrada excede el máximo de {max_bytes} bytes"),
+        ));
+    }
+    String::from_utf8(buf).map_err(|e| Error::new(ErrorKind::InvalidData, e))
+}
 
 fn help_text() -> String {
     format!(
@@ -173,7 +192,7 @@ fn run_grid_spec_command(args: &[String]) -> Result<String, String> {
     }
     let path =
         json_file.ok_or_else(|| "falta --json-file <path> para run-grid-spec".to_string())?;
-    let raw = fs::read_to_string(&path)
+    let raw = read_bounded(&path, DEFAULT_MAX_INPUT_BYTES)
         .map_err(|err| format!("error leyendo --json-file '{path}': {err}"))?;
     let spec = ExperimentSpec::from_json(&raw)
         .map_err(|err| format!("error parseando ExperimentSpec '{path}': {err}"))?;
@@ -250,7 +269,7 @@ fn run_spec_command(args: &[String]) -> Result<String, String> {
     let master_seed = MasterSeed::new(seed);
 
     if let Some(path) = json_file {
-        let json = fs::read_to_string(&path)
+        let json = read_bounded(&path, DEFAULT_MAX_INPUT_BYTES)
             .map_err(|err| format!("error leyendo --json-file '{path}': {err}"))?;
         let summary = engine
             .run_json_with_seed(&json, ticks, master_seed)
@@ -367,7 +386,7 @@ fn compile_artifact_command(args: &[String]) -> Result<String, String> {
         out_file.ok_or_else(|| "falta --out <path> para compile-artifact".to_string())?;
 
     let spec = if let Some(path) = json_file {
-        let raw = fs::read_to_string(&path)
+        let raw = read_bounded(&path, DEFAULT_MAX_INPUT_BYTES)
             .map_err(|err| format!("error leyendo --json-file '{path}': {err}"))?;
         SystemSpec::from_json(&raw)
             .map_err(|err| format!("error parseando SystemSpec '{path}': {err}"))?
@@ -416,7 +435,7 @@ fn inspect_artifact_command(args: &[String]) -> Result<String, String> {
 
     let path = artifact_file
         .ok_or_else(|| "falta --artifact-file <path> para inspect-artifact".to_string())?;
-    let raw = fs::read_to_string(&path)
+    let raw = read_bounded(&path, DEFAULT_MAX_INPUT_BYTES)
         .map_err(|err| format!("error leyendo --artifact-file '{path}': {err}"))?;
     let info = CompiledPlanArtifact::inspect_json(&raw)
         .map_err(|err| format!("error inspeccionando artefacto '{path}': {err}"))?;
@@ -477,7 +496,7 @@ fn run_artifact_command(args: &[String]) -> Result<String, String> {
 
     let path = artifact_file
         .ok_or_else(|| "falta --artifact-file <path> para run-artifact".to_string())?;
-    let raw = fs::read_to_string(&path)
+    let raw = read_bounded(&path, DEFAULT_MAX_INPUT_BYTES)
         .map_err(|err| format!("error leyendo --artifact-file '{path}': {err}"))?;
     let engine = PlanRuntimeEngine::new();
     let summary = engine
@@ -531,6 +550,19 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn gog_138_read_bounded_rejects_oversized_file_and_accepts_exact() {
+        let dir = env::temp_dir().join(format!("gog138_{}", process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("in.json");
+        fs::write(&path, "0123456789").unwrap();
+        let p = path.to_str().unwrap();
+        assert_eq!(read_bounded(p, 10).unwrap(), "0123456789");
+        let err = read_bounded(p, 9).unwrap_err();
+        assert!(err.to_string().contains("excede"), "{err}");
+        fs::remove_dir_all(&dir).ok();
+    }
 
     #[test]
     fn cli_prints_version_and_usage() {
