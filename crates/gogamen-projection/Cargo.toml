@@ -1,0 +1,13 @@
+[package]
+name = "gogamen-projection"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+gogamen-core = { path = "../gogamen-core" }
+gogamen-spec = { path = "../gogamen-spec" }
+
+[dev-dependencies]
+gogamen-compiler = { path = "../gogamen-compiler" }
+gogamen-runtime = { path = "../gogamen-runtime" }

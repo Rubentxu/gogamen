@@ -1,0 +1,27 @@
+[package]
+name = "gogamen-rerun-export"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Optional one-way exporter from Gogamen traces to Rerun recordings (.rrd). The Rerun SDK is only linked with the `rerun` feature."
+
+[features]
+default = []
+# Enables the Rerun SDK emitter (`rerun_sink`). Without it only the pure projection
+# (`plan`) is compiled and no Rerun/wasmtime/bevy crates are in the dependency graph.
+rerun = ["dep:rerun"]
+
+[dependencies]
+gogamen-core = { path = "../gogamen-core" }
+gogamen-runtime = { path = "../gogamen-runtime" }
+gogamen-studio = { path = "../gogamen-studio" }
+gogamen-lab-grid = { path = "../../labs/grid" }
+rerun = { version = "0.43.2", default-features = false, features = ["sdk"], optional = true }
+
+[[example]]
+name = "export_fixture"
+required-features = ["rerun"]
+
+[[test]]
+name = "rrd_export"
+required-features = ["rerun"]
