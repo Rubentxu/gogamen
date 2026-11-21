@@ -1,0 +1,20 @@
+gogamen-trap-zoo v1
+principle=trajectory_entropy
+scale=6
+horizon=3
+seed=2
+initial=0
+orig_states=6
+orig_edges=16
+chosen=1
+alternative=0
+failing_hash=0x69f5bace3d5030b7
+state 0 viable
+edge 0 0 0 2
+edge 0 1 5 3
+state 3 dead
+state 4 viable
+edge 4 0 3 3
+state 5 viable
+edge 5 0 5 1
+edge 5 0 4 4

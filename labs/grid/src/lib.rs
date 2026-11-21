@@ -9,14 +9,29 @@
 pub mod ablation;
 pub mod baselines;
 pub mod belief_fmc;
+pub mod bool_world;
+pub mod conditional_effects;
+pub mod entropy_controls;
+pub mod epistemic_exploration;
 pub mod experiment;
 pub mod freedom_proxy;
+pub mod hidden_dynamics;
 pub mod language_world;
+pub mod learning_progress_drive;
+pub mod macrostate;
 pub mod map;
+pub mod memory_entropy_guard;
+pub mod memory_world;
 pub mod monte_carlo;
+pub mod multiscale;
+pub mod nested_scales;
 pub mod partial_obs;
+pub mod pocket_oracle;
 pub mod pomcp;
+pub mod posterior_sampling_fmc;
 pub mod scenario;
+pub mod trap_zoo;
+pub mod viability_prior;
 pub mod world;
 
 pub use ablation::{
@@ -34,6 +49,10 @@ pub use belief_fmc::{
     NominalFmcSummary, ParticleRolloutTrace, belief_epistemic_uncertainty_bits,
     build_nominal_map_from_belief, sample_belief_particles,
 };
+pub use bool_world::{
+    BOOL_WORLD_DEFAULT_TOLERANCE, BOOL_WORLD_SCHEMA_VERSION, BoolSamplingPolicy, BoolWorld,
+    BoolWorldError, MicroState, OracleLimits, OracleReport, Reachability, Trajectory,
+};
 pub use experiment::{
     AlgorithmAggregate, ExperimentAlgorithm, FairComparisonConfig, FairComparisonReport,
     SeedRunResult, SeedSplit, run_fair_grid_comparison,
@@ -48,9 +67,23 @@ pub use language_world::{
     run_language_world_demo, run_language_world_with_config,
 };
 pub use map::{CellKind, GridMap, GridPos, GridSize, cul_de_sac_map};
+pub use memory_entropy_guard::{
+    AuxChannel, AuxProjectionReport, GuardConfig, GuardReport, GuardWorld, GuardWriter,
+    MEMORY_ENTROPY_GUARD_NOTE, normalize_project_mark, run_aux_projection, run_guard_fixture,
+};
+pub use memory_world::{
+    EpisodeOutcome, Evaporation, MEMORY_WORLD_NOTE, MarkBoard, MarkCondition, MemoryWorldConfig,
+    MemoryWorldError, MemoryWorldReport, PairedDiff, Rules, StepCost, Variant, VariantRun, Verdict,
+    paired_diff, run_memory_world, run_variant,
+};
 pub use monte_carlo::{
     MonteCarloBaselineMetrics, MonteCarloConfig, MonteCarloPlanner, MonteCarloStepResult,
     run_monte_carlo_shooting_baseline,
+};
+pub use multiscale::{
+    CausalControl, InterventionPolicy, MULTISCALE_SCALE_VERSION, MultiscaleConfig, MultiscaleError,
+    PredictiveError, Scale, ScaleComparison, ScaleDeltas, ScaleMeasures, ScaleRelation, ScaleTag,
+    ScaleVerdict, TrajectoryEntropy, Viability, compare_scales, measure_at_scale, relate_scales,
 };
 pub use partial_obs::{
     BeliefCorrection, BeliefGridPlanner, CellHypothesis, DEFAULT_DIRECT_SENSOR_ID,

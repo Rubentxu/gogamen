@@ -1,0 +1,17 @@
+gogamen-trap-zoo v1
+principle=greedy_final_entropy
+scale=7
+horizon=2
+seed=7
+initial=0
+orig_states=7
+orig_edges=13
+chosen=0
+alternative=1
+failing_hash=0x31395507c62e8c1b
+state 0 viable
+edge 0 0 0 3
+edge 0 0 5 4
+edge 0 1 6 2
+state 5 dead
+state 6 viable
