@@ -1,0 +1,11 @@
+# id<TAB>dsl_code<TAB>dsl_path<TAB>message_contains<TAB>rust_location (- = only the DSL can reject it)
+behavior_rule	E_BEHAVIOR_RULE	agents[0].rule	behavior rules are not part of the grammar	UnknownField:AdaptiveAgentSpec.rule
+pure_leak	E_OBSERVABLE_LEAK	agents[0].goals[0].expr.lhs	'reward'	-
+privileged_hidden	E_PRIVILEGED_HIDDEN	agents[0].model.privileged	hidden world forbids	-
+learning_no_algorithm	E_LEARNING_NO_ALGORITHM	cognitive.learning.rule	explicit algorithm	MissingField:CognitiveSpec.rule
+no_budget	E_MISSING_BUDGET	budget	declares no budget	MissingField:AdaptiveExperimentSpec.budget
+no_seeds	E_MISSING_SEEDS	seeds.dev_seeds	no development seeds	MissingField:AdaptiveExperimentSpec.seeds
+seeds_overlap	E_SEEDS_OVERLAP	seeds.holdout_seeds[0]	both dev and holdout	OverlappingSeeds:12
+unit_mismatch	E_UNIT_MISMATCH	agents[0].goals[0].expr	energy and ratio	-
+hypothesis_no_refutation	E_HYPOTHESIS_NO_REFUTATION	hypotheses[0].refutation_comparator	what would refute it	MissingField:HypothesisSpec.refutation_comparator
+matrix_size_mismatch	E_MATRIX_SIZE_MISMATCH	vary	declared 7 runs but the matrix expands to 10	-

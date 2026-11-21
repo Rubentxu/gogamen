@@ -252,7 +252,12 @@ impl AskActionSpec {
 
     pub fn from_json(json: &str) -> Result<Self, SpecError> {
         let value = parse_json(json)?;
-        let map = as_object(&value, "AskAction")?;
+        Self::from_json_value(&value)
+    }
+
+    /// Parsea una acción `Ask` desde un [`JsonValue`] ya decodificado.
+    pub(crate) fn from_json_value(value: &JsonValue) -> Result<Self, SpecError> {
+        let map = as_object(value, "AskAction")?;
         reject_unknown_fields(
             map,
             &[
@@ -498,7 +503,12 @@ impl GuardPolicySpec {
 
     pub fn from_json(json: &str) -> Result<Self, SpecError> {
         let value = parse_json(json)?;
-        let map = as_object(&value, "GuardPolicySpec")?;
+        Self::from_json_value(&value)
+    }
+
+    /// Parsea una política de guardia desde un [`JsonValue`] ya decodificado.
+    pub(crate) fn from_json_value(value: &JsonValue) -> Result<Self, SpecError> {
+        let map = as_object(value, "GuardPolicySpec")?;
         reject_unknown_fields(
             map,
             &[
@@ -520,6 +530,94 @@ impl GuardPolicySpec {
                 "GuardPolicySpec",
             )?,
             immutable_permissions: require_bool(map, "immutable_permissions", "GuardPolicySpec")?,
+        };
+        spec.validate()?;
+        Ok(spec)
+    }
+}
+
+/// Bloque epistémico tipado de un agente: pregunta de grounding, acción `Ask` y guardia.
+///
+/// Sustituye a las claves de configuración legadas `question_json`, `ask_json` y `guard_json`
+/// que la fixture `language_world` transportaba como cadenas dentro de `config`. Los tres
+/// campos son opcionales y se omiten del JSON canónico cuando no se declaran, de modo que un
+/// agente sin bloque epistémico conserva sus bytes históricos.
+#[derive(Debug, Clone, PartialEq)]
+pub struct EpistemicSpec {
+    /// Pregunta de grounding declarada.
+    pub question: Option<EpistemicQuestionSpec>,
+    /// Acción `Ask` declarada.
+    pub ask: Option<AskActionSpec>,
+    /// Política de guardia declarada.
+    pub guard: Option<GuardPolicySpec>,
+}
+
+impl EpistemicSpec {
+    /// Valida las tres piezas declaradas.
+    pub fn validate(&self) -> Result<(), SpecError> {
+        if let Some(question) = &self.question {
+            question.validate()?;
+        }
+        if let Some(ask) = &self.ask {
+            ask.validate()?;
+        }
+        if let Some(guard) = &self.guard {
+            guard.validate()?;
+        }
+        Ok(())
+    }
+
+    /// Emite el bloque canónico (claves ordenadas, piezas ausentes omitidas).
+    pub fn to_canonical_json(&self) -> Result<String, SpecError> {
+        self.validate()?;
+        let mut out = String::from("{");
+        let mut first = true;
+        if let Some(ask) = &self.ask {
+            out.push_str("\"ask\":");
+            out.push_str(&ask.to_canonical_json()?);
+            first = false;
+        }
+        if let Some(guard) = &self.guard {
+            if !first {
+                out.push(',');
+            }
+            out.push_str("\"guard\":");
+            out.push_str(&guard.to_canonical_json()?);
+            first = false;
+        }
+        if let Some(question) = &self.question {
+            if !first {
+                out.push(',');
+            }
+            out.push_str("\"question\":");
+            write_question_json(&mut out, question)?;
+        }
+        out.push('}');
+        Ok(out)
+    }
+
+    /// Parsea un bloque epistémico desde un [`JsonValue`] ya decodificado.
+    pub(crate) fn from_json_value(
+        value: &JsonValue,
+        policy: UnknownFieldPolicy,
+    ) -> Result<Self, SpecError> {
+        let map = as_object(value, "EpistemicSpec")?;
+        reject_unknown_fields(
+            map,
+            &["question", "ask", "guard"],
+            "EpistemicSpec",
+            policy,
+        )?;
+        let spec = Self {
+            question: map.get("question").map(parse_question_json).transpose()?,
+            ask: map
+                .get("ask")
+                .map(AskActionSpec::from_json_value)
+                .transpose()?,
+            guard: map
+                .get("guard")
+                .map(GuardPolicySpec::from_json_value)
+                .transpose()?,
         };
         spec.validate()?;
         Ok(spec)

@@ -98,6 +98,56 @@ pub enum SpecError {
         /// Semilla presente en ambos conjuntos.
         seed: u64,
     },
+    /// Variante desconocida en un conjunto cerrado (objetivo, regla, tipo de memoria, permiso).
+    UnknownVariant {
+        /// Ruta del campo (por ejemplo `cognitive.memory.permissions[1]`).
+        path: String,
+        /// Valor rechazado (truncado a 64 caracteres).
+        value: String,
+        /// Variantes admitidas.
+        expected: &'static [&'static str],
+    },
+    /// Referencia a un sensor, modelo o puerto inexistente en el contexto.
+    InvalidReference {
+        /// Ruta del campo que referencia.
+        path: String,
+        /// Clase de referencia (`sensor`, `model`, `port`).
+        kind: &'static str,
+        /// Identificador no resuelto (truncado a 64 caracteres).
+        id: String,
+    },
+    /// Colección, cadena o magnitud por encima del límite acotado.
+    LimitExceeded {
+        /// Ruta del campo.
+        path: String,
+        /// Límite máximo permitido.
+        limit: usize,
+        /// Valor encontrado.
+        found: usize,
+    },
+    /// Un principio [`gogamen_core::SelectionPrinciple::Pure`] declara leer un observable que
+    /// un fenómeno mide (la dotación de un experimento puro no puede depender de él).
+    PurePrincipleReadsPhenomenonObservable {
+        /// Ruta precisa del observable del fenómeno (por ejemplo
+        /// `agent.phenomena[0].observable`).
+        path: String,
+        /// Nombre del observable compartido.
+        observable: String,
+    },
+    /// Un modelo privilegiado del laboratorio se declara junto a `modelAccess: hidden`.
+    PrivilegedModelWithHiddenAccess {
+        /// Ruta precisa del campo `modelAccess` (por ejemplo `agent.model_access`).
+        path: String,
+        /// Identificador del modelo privilegiado.
+        model_id: String,
+    },
+    /// Un campo tipado de la v2 aparece en una especificación v0.1.
+    TypedFieldRequiresV2 {
+        /// Ruta precisa del campo tipado.
+        path: String,
+        /// Versión de esquema que habilita el campo.
+        expected: &'static str,
+    },
     /// Error estructural o causal al construir o compilar [`gogamen_core::ConnectionGraph`].
     Graph(ConnectionError),
 }
@@ -164,6 +214,35 @@ impl fmt::Display for SpecError {
                     "dev_seeds and holdout_seeds must be disjoint (overlapping seed {seed})"
                 )
             }
+            Self::UnknownVariant {
+                path,
+                value,
+                expected,
+            } => {
+                write!(
+                    f,
+                    "unknown variant '{value}' at {path} (expected one of: {})",
+                    expected.join(", ")
+                )
+            }
+            Self::InvalidReference { path, kind, id } => {
+                write!(f, "unresolved {kind} reference '{id}' at {path}")
+            }
+            Self::LimitExceeded { path, limit, found } => {
+                write!(f, "limit exceeded at {path}: {found} > {limit}")
+            }
+            Self::PurePrincipleReadsPhenomenonObservable { path, observable } => write!(
+                f,
+                "pure selection principle must not read observable '{observable}' measured by a phenomenon at {path}"
+            ),
+            Self::PrivilegedModelWithHiddenAccess { path, model_id } => write!(
+                f,
+                "privileged model '{model_id}' is incompatible with modelAccess=hidden at {path}"
+            ),
+            Self::TypedFieldRequiresV2 { path, expected } => write!(
+                f,
+                "typed field at {path} requires schema_version '{expected}'"
+            ),
             Self::Graph(err) => write!(f, "connection graph validation error: {err}"),
         }
     }

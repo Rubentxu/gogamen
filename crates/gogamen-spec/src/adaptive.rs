@@ -4,15 +4,26 @@
 //! [`SystemSpec`] directamente (sin segunda IR), cubriendo mundo, sensores, modelo,
 //! objetivos tipados ([`ExprAst`]), restricciones, presupuesto, semillas disjuntas,
 //! catálogo explícito de acciones ([`CapabilityCatalog`] / [`ActionRegistry`]) y
-//! migración versionada desde `gogamen.experiment_spec.v0` hacia `gogamen.experiment_spec.v0.1`.
+//! migración versionada desde `gogamen.experiment_spec.v0`/`v0.1` hacia el contrato tipado
+//! `gogamen.experiment_spec.v0.2` (principio, escala, aprendizaje, fenómenos y `vary`).
 //!
-//! # Migración de versiones (`v0` -> `v0.1`)
+//! # Versionado
+//! La v0.1 sigue siendo la versión por defecto de [`AdaptiveExperimentSpec::new`] para no
+//! alterar los bytes de los corpus dorados compartidos con el DSL Kotlin/Python. La v0.2
+//! ([`ADAPTIVE_AGENT_SPEC_SCHEMA_VERSION_V2`]) añade los campos tipados v2 (obligatorios si se
+//! declaran) y es el destino de la migración.
+//!
+//! # Migración de versiones (`v0`/`v0.1` -> `v0.2`)
 //! La función [`migrate_experiment_spec_json`] soporta:
-//! - `gogamen.experiment_spec.v0.1`: valida directamente como [`AdaptiveExperimentSpec`].
+//! - `gogamen.experiment_spec.v0.2`: valida directamente como [`AdaptiveExperimentSpec`] sin
+//!   cambios (`already_at_target_version`).
+//! - `gogamen.experiment_spec.v0.1`: eleva `phenomena_json`, `vary_json`, `mode=pure`,
+//!   `privileged`, `observability=hidden` y `question_json`/`ask_json`/`guard_json` a campos
+//!   tipados con [`SchemaMigrationReport`].
 //! - `gogamen.experiment_spec.v0` (legacy [`ExperimentSpec`](crate::ExperimentSpec)):
-//!   migra determinísticamente a [`AdaptiveExperimentSpec`] derivando [`WorldSpecRef`],
-//!   [`BudgetSpec`] acotado por defecto, [`SeedSpec`] disjunto (`dev=[seed]`,
-//!   `holdout=[seed.wrapping_add(1)]`) y [`ModelSpecRef`] por agente, registrando cada
+//!   migra determinísticamente derivando [`WorldSpecRef`], [`BudgetSpec`] acotado por defecto,
+//!   [`SeedSpec`] disjunto (`dev=[seed]`, `holdout=[seed.wrapping_add(1)]`) y
+//!   [`ModelSpecRef`] por agente, y después encadena el ascenso a v0.2, registrando cada
 //!   paso y diagnóstico en [`SchemaMigrationReport`].
 //! - Cualquier otra versión o estructura inválida devuelve [`SpecMigrationError`] con
 //!   [`SpecDiagnostic`] (ruta de campo y versión esperada vs recibida).
@@ -24,21 +35,45 @@ use gogamen_core::{NodeId, PortId, PortType};
 
 use crate::codec::{
     as_object, parse_experiment_spec, parse_optional_config, parse_port_type, parse_system_spec,
-    reject_unknown_fields, require_array, require_schema_version, require_string, require_u64,
+    reject_unknown_fields, require_array, require_string, require_u64,
     write_config_map, write_port_type, write_system_spec,
 };
+use crate::cognitive::{CognitiveRefs, CognitiveSpec, LearningSpec};
+use crate::endowment::{
+    EndowmentBook, ModelAccess, PhenomenonSpec, PrincipleSpec, ScaleAxisSpec, ScaleSpec,
+    VaryAxisSpec, parse_learning_spec, parse_phenomena, parse_principle_spec, parse_scale_spec,
+    parse_vary,
+};
+use crate::epistemic::{EpistemicQuestionSpec, EpistemicSpec};
 use crate::error::{SpecDiagnostic, SpecError, SpecMigrationError, UnknownFieldPolicy};
 use crate::expr::{ExprAst, parse_expr_json, write_expr_json};
-use crate::json::{JsonNumber, JsonValue, parse_json, write_json_string};
+use crate::hypothesis::{
+    HypothesisComparator, HypothesisSpec, canonical_hypotheses_json, parse_hypotheses,
+    validate_hypotheses,
+};
+use crate::json::{JsonNumber, JsonValue, parse_json, write_canonical_f64, write_json_string};
 use crate::model::{
     EXPERIMENT_SPEC_SCHEMA_VERSION, SpecConfigMap, SpecConfigValue, SystemConnectionSpec,
     SystemNodeSpec, SystemSpec, validate_config_map, validate_non_empty,
 };
 
-/// Versión de esquema canónica para [`AdaptiveAgentSpec`].
+/// Versión de esquema por defecto para [`AdaptiveAgentSpec`] (compatibilidad de bytes v0.1).
 pub const ADAPTIVE_AGENT_SPEC_SCHEMA_VERSION: &str = "gogamen.adaptive_agent_spec.v0.1";
-/// Versión de esquema canónica para [`AdaptiveExperimentSpec`].
+/// Versión de esquema por defecto para [`AdaptiveExperimentSpec`] (compatibilidad de bytes v0.1).
 pub const ADAPTIVE_EXPERIMENT_SPEC_SCHEMA_VERSION: &str = "gogamen.experiment_spec.v0.1";
+/// Versión v0.2 del agente: habilita principio, escala, aprendizaje, fenómenos y epistémico tipados.
+pub const ADAPTIVE_AGENT_SPEC_SCHEMA_VERSION_V2: &str = "gogamen.adaptive_agent_spec.v0.2";
+/// Versión v0.2 del experimento: habilita `vary` y agentes v0.2.
+pub const ADAPTIVE_EXPERIMENT_SPEC_SCHEMA_VERSION_V2: &str = "gogamen.experiment_spec.v0.2";
+
+const AGENT_SCHEMA_VERSIONS: &[&str] = &[
+    ADAPTIVE_AGENT_SPEC_SCHEMA_VERSION,
+    ADAPTIVE_AGENT_SPEC_SCHEMA_VERSION_V2,
+];
+const EXPERIMENT_SCHEMA_VERSIONS: &[&str] = &[
+    ADAPTIVE_EXPERIMENT_SPEC_SCHEMA_VERSION,
+    ADAPTIVE_EXPERIMENT_SPEC_SCHEMA_VERSION_V2,
+];
 
 const FORBIDDEN_EVAL_KEYS: &[&str] = &[
     "eval",
@@ -168,16 +203,28 @@ pub struct ModelSpecRef {
     pub kind: String,
     /// Parámetros escalares del modelo.
     pub config: SpecConfigMap,
+    /// Modelo privilegiado del laboratorio: lee estado del mundo directamente.
+    ///
+    /// Se omite del JSON canónico cuando es `false`, así que las fixtures históricas conservan
+    /// sus bytes. Es incompatible con `modelAccess: hidden`.
+    pub privileged: bool,
 }
 
 impl ModelSpecRef {
-    /// Crea una referencia declarativa a modelo.
+    /// Crea una referencia declarativa a modelo (no privilegiado).
     pub fn new(model_id: impl Into<String>, kind: impl Into<String>) -> Self {
         Self {
             model_id: model_id.into(),
             kind: kind.into(),
             config: SpecConfigMap::new(),
+            privileged: false,
         }
+    }
+
+    /// Declara que el modelo es el modelo privilegiado del laboratorio.
+    pub fn with_privileged(mut self, privileged: bool) -> Self {
+        self.privileged = privileged;
+        self
     }
 
     /// Añade un parámetro escalar al modelo.
@@ -482,15 +529,53 @@ pub struct AdaptiveAgentSpec {
     pub goals: Vec<GoalSpec>,
     /// Restricciones declarativas del agente.
     pub constraints: Vec<ConstraintSpec>,
+    /// Bloque cognitivo opcional (política entrópica, resolución, aprendizaje, memoria).
+    pub cognitive: Option<CognitiveSpec>,
+    /// Principio de selección tipado y observables que declara leer (v0.2).
+    pub principle: Option<PrincipleSpec>,
+    /// Escala compartida por aprendiz y planificador (v0.2).
+    pub scale: Option<ScaleSpec>,
+    /// Aprendizaje tipado de la v2 (v0.2; debe coincidir con `cognitive.learning` si existe).
+    pub learn: Option<LearningSpec>,
+    /// Fenómenos medidos desde fuera (v0.2).
+    pub phenomena: Vec<PhenomenonSpec>,
+    /// Acceso del agente al estado del mundo (`visible` por defecto, v0.2).
+    pub model_access: ModelAccess,
+    /// Bloque epistémico tipado que sustituye a `question_json`/`ask_json`/`guard_json` (v0.2).
+    pub epistemic: Option<EpistemicSpec>,
     /// Parámetros escalares adicionales del agente.
     pub config: SpecConfigMap,
 }
 
 impl AdaptiveAgentSpec {
-    /// Crea una especificación de agente adaptativo compuesta sobre [`SystemSpec`].
+    /// Crea una especificación de agente adaptativo compuesta sobre [`SystemSpec`] (v0.1).
     pub fn new(agent_id: impl Into<String>, system: SystemSpec, model: ModelSpecRef) -> Self {
+        Self::new_with_version(
+            agent_id,
+            system,
+            model,
+            ADAPTIVE_AGENT_SPEC_SCHEMA_VERSION,
+        )
+    }
+
+    /// Crea un agente con el contrato tipado v0.2.
+    pub fn new_v2(agent_id: impl Into<String>, system: SystemSpec, model: ModelSpecRef) -> Self {
+        Self::new_with_version(
+            agent_id,
+            system,
+            model,
+            ADAPTIVE_AGENT_SPEC_SCHEMA_VERSION_V2,
+        )
+    }
+
+    fn new_with_version(
+        agent_id: impl Into<String>,
+        system: SystemSpec,
+        model: ModelSpecRef,
+        schema_version: &str,
+    ) -> Self {
         Self {
-            schema_version: ADAPTIVE_AGENT_SPEC_SCHEMA_VERSION.to_owned(),
+            schema_version: schema_version.to_owned(),
             agent_id: agent_id.into(),
             system,
             sensors: Vec::new(),
@@ -498,8 +583,61 @@ impl AdaptiveAgentSpec {
             actions: Vec::new(),
             goals: Vec::new(),
             constraints: Vec::new(),
+            cognitive: None,
+            principle: None,
+            scale: None,
+            learn: None,
+            phenomena: Vec::new(),
+            model_access: ModelAccess::Visible,
+            epistemic: None,
             config: SpecConfigMap::new(),
         }
+    }
+
+    /// Declara el principio de selección tipado.
+    pub fn with_principle(mut self, principle: PrincipleSpec) -> Self {
+        self.principle = Some(principle);
+        self
+    }
+
+    /// Declara la escala compartida.
+    pub fn with_scale(mut self, scale: ScaleSpec) -> Self {
+        self.scale = Some(scale);
+        self
+    }
+
+    /// Declara el aprendizaje tipado de la v2.
+    pub fn with_learn(mut self, learning: LearningSpec) -> Self {
+        self.learn = Some(learning);
+        self
+    }
+
+    /// Añade un fenómeno medido desde fuera.
+    pub fn with_phenomenon(mut self, phenomenon: PhenomenonSpec) -> Self {
+        self.phenomena.push(phenomenon);
+        self
+    }
+
+    /// Declara el modo de acceso al mundo.
+    pub fn with_model_access(mut self, access: ModelAccess) -> Self {
+        self.model_access = access;
+        self
+    }
+
+    /// Declara el bloque epistémico tipado.
+    pub fn with_epistemic(mut self, epistemic: EpistemicSpec) -> Self {
+        self.epistemic = Some(epistemic);
+        self
+    }
+
+    fn is_v2(&self) -> bool {
+        self.schema_version == ADAPTIVE_AGENT_SPEC_SCHEMA_VERSION_V2
+    }
+
+    /// Declara el bloque cognitivo opcional del agente.
+    pub fn with_cognitive(mut self, cognitive: CognitiveSpec) -> Self {
+        self.cognitive = Some(cognitive);
+        self
     }
 
     /// Añade un sensor al agente.
@@ -534,9 +672,9 @@ impl AdaptiveAgentSpec {
 
     /// Valida estructural y semánticamente el agente adaptativo.
     pub fn validate(&self) -> Result<(), SpecError> {
-        if self.schema_version != ADAPTIVE_AGENT_SPEC_SCHEMA_VERSION {
+        if !AGENT_SCHEMA_VERSIONS.contains(&self.schema_version.as_str()) {
             return Err(SpecError::IncompatibleSchemaVersion {
-                expected: ADAPTIVE_AGENT_SPEC_SCHEMA_VERSION,
+                expected: ADAPTIVE_AGENT_SPEC_SCHEMA_VERSION_V2,
                 found: self.schema_version.clone(),
             });
         }
@@ -573,6 +711,97 @@ impl AdaptiveAgentSpec {
 
         validate_unique_goals(&self.goals, "AdaptiveAgentSpec.goals")?;
         validate_unique_constraints(&self.constraints, "AdaptiveAgentSpec.constraints")?;
+        if let Some(cognitive) = &self.cognitive {
+            let mut refs = CognitiveRefs::default().with_system(&self.system);
+            refs.sensors = self.sensors.iter().map(|s| s.sensor_id.clone()).collect();
+            refs.models.insert(self.model.model_id.clone());
+            cognitive.validate(&refs)?;
+        }
+        self.validate_typed_fields()?;
+        Ok(())
+    }
+
+    /// Valida los campos tipados v2 y su coherencia con el resto del agente.
+    fn validate_typed_fields(&self) -> Result<(), SpecError> {
+        let v2 = self.is_v2();
+        ensure_v2(v2, self.principle.is_some(), "agent.principle")?;
+        ensure_v2(v2, self.scale.is_some(), "agent.scale")?;
+        ensure_v2(v2, self.learn.is_some(), "agent.learn")?;
+        ensure_v2(v2, !self.phenomena.is_empty(), "agent.phenomena")?;
+        ensure_v2(v2, self.epistemic.is_some(), "agent.epistemic")?;
+        ensure_v2(
+            v2,
+            self.model_access != ModelAccess::Visible,
+            "agent.model_access",
+        )?;
+        ensure_v2(v2, self.model.privileged, "agent.model.privileged")?;
+
+        if let Some(principle) = &self.principle {
+            crate::endowment::validate_principle(principle, "agent.principle")?;
+        }
+        if let Some(scale) = &self.scale {
+            scale.to_scale("agent.scale")?;
+        }
+        if let Some(learning) = &self.learn {
+            crate::endowment::validate_learning(learning, "agent.learn")?;
+            if learning.model != self.model.model_id {
+                return Err(SpecError::InvalidReference {
+                    path: "agent.learn.model".to_owned(),
+                    kind: "model",
+                    id: learning.model.chars().take(64).collect(),
+                });
+            }
+            if let Some(cognitive) = &self.cognitive {
+                if cognitive.learning != *learning {
+                    return Err(SpecError::InvalidFieldValue {
+                        context: "AdaptiveAgentSpec",
+                        field: "learn",
+                        reason: "agent.learn: conflicts with cognitive.learning".to_owned(),
+                    });
+                }
+            }
+        }
+
+        let mut seen_phenomena = BTreeSet::new();
+        for (i, phenomenon) in self.phenomena.iter().enumerate() {
+            phenomenon.validate(&format!("agent.phenomena[{i}]"))?;
+            if !seen_phenomena.insert(phenomenon.phenomenon_id.as_str()) {
+                return Err(SpecError::DuplicateIdentifier {
+                    context: "AdaptiveAgentSpec.phenomena",
+                    id: phenomenon.phenomenon_id.clone(),
+                });
+            }
+        }
+
+        // (a) Un principio puro no puede leer un observable que un fenómeno mide.
+        if let Some(principle) = &self.principle {
+            if principle.kind == gogamen_core::SelectionPrinciple::Pure {
+                for (i, phenomenon) in self.phenomena.iter().enumerate() {
+                    if principle
+                        .observables
+                        .iter()
+                        .any(|declared| declared == &phenomenon.observable)
+                    {
+                        return Err(SpecError::PurePrincipleReadsPhenomenonObservable {
+                            path: format!("agent.phenomena[{i}].observable"),
+                            observable: phenomenon.observable.chars().take(64).collect(),
+                        });
+                    }
+                }
+            }
+        }
+
+        // (b) Un modelo privilegiado del laboratorio no puede convivir con acceso oculto.
+        if self.model_access == ModelAccess::Hidden && self.model.privileged {
+            return Err(SpecError::PrivilegedModelWithHiddenAccess {
+                path: "agent.model_access".to_owned(),
+                model_id: self.model.model_id.chars().take(64).collect(),
+            });
+        }
+
+        if let Some(epistemic) = &self.epistemic {
+            epistemic.validate()?;
+        }
         Ok(())
     }
 
@@ -631,12 +860,18 @@ pub struct AdaptiveExperimentSpec {
     pub budget: BudgetSpec,
     /// Semillas `dev` y `holdout` disjuntas.
     pub seeds: SeedSpec,
+    /// Bloque cognitivo opcional por defecto del experimento.
+    pub cognitive: Option<CognitiveSpec>,
+    /// Hypotheses pre-registered before execution (omitted from JSON when empty).
+    pub hypotheses: Vec<HypothesisSpec>,
+    /// Ejes de ablación que expanden el experimento a una matriz (v0.2).
+    pub vary: Vec<VaryAxisSpec>,
     /// Parámetros escalares del experimento.
     pub config: SpecConfigMap,
 }
 
 impl AdaptiveExperimentSpec {
-    /// Crea una especificación de experimento adaptativo tipado.
+    /// Crea una especificación de experimento adaptativo tipado (v0.1).
     pub fn new(
         experiment_id: impl Into<String>,
         world: WorldSpecRef,
@@ -644,8 +879,44 @@ impl AdaptiveExperimentSpec {
         budget: BudgetSpec,
         seeds: SeedSpec,
     ) -> Self {
+        Self::new_with_version(
+            experiment_id,
+            world,
+            system,
+            budget,
+            seeds,
+            ADAPTIVE_EXPERIMENT_SPEC_SCHEMA_VERSION,
+        )
+    }
+
+    /// Crea un experimento con el contrato tipado v0.2.
+    pub fn new_v2(
+        experiment_id: impl Into<String>,
+        world: WorldSpecRef,
+        system: SystemSpec,
+        budget: BudgetSpec,
+        seeds: SeedSpec,
+    ) -> Self {
+        Self::new_with_version(
+            experiment_id,
+            world,
+            system,
+            budget,
+            seeds,
+            ADAPTIVE_EXPERIMENT_SPEC_SCHEMA_VERSION_V2,
+        )
+    }
+
+    fn new_with_version(
+        experiment_id: impl Into<String>,
+        world: WorldSpecRef,
+        system: SystemSpec,
+        budget: BudgetSpec,
+        seeds: SeedSpec,
+        schema_version: &str,
+    ) -> Self {
         Self {
-            schema_version: ADAPTIVE_EXPERIMENT_SPEC_SCHEMA_VERSION.to_owned(),
+            schema_version: schema_version.to_owned(),
             experiment_id: experiment_id.into(),
             world,
             system,
@@ -654,8 +925,33 @@ impl AdaptiveExperimentSpec {
             constraints: Vec::new(),
             budget,
             seeds,
+            cognitive: None,
+            hypotheses: Vec::new(),
+            vary: Vec::new(),
             config: SpecConfigMap::new(),
         }
+    }
+
+    /// Añade un eje de ablación.
+    pub fn with_vary(mut self, axis: VaryAxisSpec) -> Self {
+        self.vary.push(axis);
+        self
+    }
+
+    fn is_v2(&self) -> bool {
+        self.schema_version == ADAPTIVE_EXPERIMENT_SPEC_SCHEMA_VERSION_V2
+    }
+
+    /// Pre-registers a hypothesis for the experiment.
+    pub fn with_hypothesis(mut self, hypothesis: HypothesisSpec) -> Self {
+        self.hypotheses.push(hypothesis);
+        self
+    }
+
+    /// Declara el bloque cognitivo opcional por defecto del experimento.
+    pub fn with_cognitive(mut self, cognitive: CognitiveSpec) -> Self {
+        self.cognitive = Some(cognitive);
+        self
     }
 
     /// Añade un agente adaptativo al experimento.
@@ -684,9 +980,9 @@ impl AdaptiveExperimentSpec {
 
     /// Valida estructural y semánticamente todo el experimento adaptativo.
     pub fn validate(&self) -> Result<(), SpecError> {
-        if self.schema_version != ADAPTIVE_EXPERIMENT_SPEC_SCHEMA_VERSION {
+        if !EXPERIMENT_SCHEMA_VERSIONS.contains(&self.schema_version.as_str()) {
             return Err(SpecError::IncompatibleSchemaVersion {
-                expected: ADAPTIVE_EXPERIMENT_SPEC_SCHEMA_VERSION,
+                expected: ADAPTIVE_EXPERIMENT_SPEC_SCHEMA_VERSION_V2,
                 found: self.schema_version.clone(),
             });
         }
@@ -717,7 +1013,35 @@ impl AdaptiveExperimentSpec {
 
         validate_unique_goals(&self.goals, "AdaptiveExperimentSpec.goals")?;
         validate_unique_constraints(&self.constraints, "AdaptiveExperimentSpec.constraints")?;
+        validate_hypotheses(&self.hypotheses)?;
+        ensure_v2(self.is_v2(), !self.vary.is_empty(), "vary")?;
+        let mut seen_vary = BTreeSet::new();
+        for (i, axis) in self.vary.iter().enumerate() {
+            axis.validate(&format!("vary[{i}]"))?;
+            if !seen_vary.insert(axis.param.as_str()) {
+                return Err(SpecError::DuplicateIdentifier {
+                    context: "AdaptiveExperimentSpec.vary",
+                    id: axis.param.clone(),
+                });
+            }
+        }
+        if let Some(cognitive) = &self.cognitive {
+            // Referencias resueltas contra el sistema del experimento y la unión de sus agentes.
+            let mut refs = CognitiveRefs::default().with_system(&self.system);
+            for agent in &self.agents {
+                refs.sensors
+                    .extend(agent.sensors.iter().map(|s| s.sensor_id.clone()));
+                refs.models.insert(agent.model.model_id.clone());
+            }
+            cognitive.validate(&refs)?;
+        }
         Ok(())
+    }
+
+    /// Emite el libro de dotación canónico del experimento (valida antes de construirlo).
+    pub fn endowment_book(&self) -> Result<EndowmentBook, SpecError> {
+        self.validate()?;
+        EndowmentBook::from_experiment(self)
     }
 
     /// Valida el experimento adaptativo y verifica todas las acciones contra [`ActionRegistry`].
@@ -776,7 +1100,8 @@ pub struct MigratedExperimentSpec {
     pub report: SchemaMigrationReport,
 }
 
-/// Migra una especificación JSON de experimento (`v0` legacy o `v0.1`) hacia [`AdaptiveExperimentSpec`].
+/// Migra una especificación JSON de experimento (`v0` legacy o `v0.1`) hacia el contrato
+/// tipado v0.2 ([`AdaptiveExperimentSpec`]).
 ///
 /// Devuelve [`SpecMigrationError`] con [`SpecDiagnostic`] detallando la ruta de campo y
 /// versión esperada vs recibida si el esquema es incompatible o inválido.
@@ -797,8 +1122,9 @@ pub fn migrate_experiment_spec_json(
         )
     })?;
 
-    let expected_versions =
-        format!("{EXPERIMENT_SPEC_SCHEMA_VERSION} | {ADAPTIVE_EXPERIMENT_SPEC_SCHEMA_VERSION}");
+    let expected_versions = format!(
+        "{EXPERIMENT_SPEC_SCHEMA_VERSION} | {ADAPTIVE_EXPERIMENT_SPEC_SCHEMA_VERSION} | {ADAPTIVE_EXPERIMENT_SPEC_SCHEMA_VERSION_V2}"
+    );
     let found_version = match root.get("schema_version") {
         Some(JsonValue::String(s)) => s.clone(),
         Some(_) => {
@@ -832,11 +1158,11 @@ pub fn migrate_experiment_spec_json(
         }
     };
 
-    if found_version == ADAPTIVE_EXPERIMENT_SPEC_SCHEMA_VERSION {
+    if found_version == ADAPTIVE_EXPERIMENT_SPEC_SCHEMA_VERSION_V2 {
         let spec =
             parse_adaptive_experiment_spec(&value, UnknownFieldPolicy::Reject).map_err(|err| {
                 SpecMigrationError::new(
-                    SpecDiagnostic::new("$", "invalid v0.1 adaptive experiment spec"),
+                    SpecDiagnostic::new("$", "invalid v0.2 adaptive experiment spec"),
                     Some(err),
                 )
             })?;
@@ -850,9 +1176,40 @@ pub fn migrate_experiment_spec_json(
             spec,
             report: SchemaMigrationReport {
                 source_version: found_version,
-                target_version: ADAPTIVE_EXPERIMENT_SPEC_SCHEMA_VERSION.to_owned(),
+                target_version: ADAPTIVE_EXPERIMENT_SPEC_SCHEMA_VERSION_V2.to_owned(),
                 applied_steps: vec!["already_at_target_version".to_owned()],
                 diagnostics: Vec::new(),
+            },
+        });
+    }
+
+    if found_version == ADAPTIVE_EXPERIMENT_SPEC_SCHEMA_VERSION {
+        let spec =
+            parse_adaptive_experiment_spec(&value, UnknownFieldPolicy::Reject).map_err(|err| {
+                SpecMigrationError::new(
+                    SpecDiagnostic::new("$", "invalid v0.1 adaptive experiment spec"),
+                    Some(err),
+                )
+            })?;
+        let (spec, applied_steps, diagnostics) = lift_v01_to_v02(spec).map_err(|err| {
+            SpecMigrationError::new(
+                SpecDiagnostic::new("$", "v0.1 -> v0.2 migration failed"),
+                Some(err),
+            )
+        })?;
+        spec.validate().map_err(|err| {
+            SpecMigrationError::new(
+                SpecDiagnostic::new("$", "migrated experiment failed v0.2 validation"),
+                Some(err),
+            )
+        })?;
+        return Ok(MigratedExperimentSpec {
+            spec,
+            report: SchemaMigrationReport {
+                source_version: found_version,
+                target_version: ADAPTIVE_EXPERIMENT_SPEC_SCHEMA_VERSION_V2.to_owned(),
+                applied_steps,
+                diagnostics,
             },
         });
     }
@@ -931,11 +1288,28 @@ pub fn migrate_experiment_spec_json(
             )
         })?;
 
+        // El contrato vigente es v0.2: se encadena el ascenso v0.1 -> v0.2 para que toda
+        // migración termine en la misma versión objetivo.
+        let (spec, lift_steps, lift_diagnostics) = lift_v01_to_v02(spec).map_err(|err| {
+            SpecMigrationError::new(
+                SpecDiagnostic::new("$", "v0 -> v0.2 migration failed"),
+                Some(err),
+            )
+        })?;
+        applied_steps.extend(lift_steps);
+        diagnostics.extend(lift_diagnostics);
+        spec.validate().map_err(|err| {
+            SpecMigrationError::new(
+                SpecDiagnostic::new("$", "migrated experiment failed v0.2 validation"),
+                Some(err),
+            )
+        })?;
+
         return Ok(MigratedExperimentSpec {
             spec,
             report: SchemaMigrationReport {
                 source_version: found_version,
-                target_version: ADAPTIVE_EXPERIMENT_SPEC_SCHEMA_VERSION.to_owned(),
+                target_version: ADAPTIVE_EXPERIMENT_SPEC_SCHEMA_VERSION_V2.to_owned(),
                 applied_steps,
                 diagnostics,
             },
@@ -954,6 +1328,215 @@ pub fn migrate_experiment_spec_json(
             found: found_version,
         }),
     ))
+}
+
+/// Eleva una especificación v0.1 al contrato tipado v0.2.
+///
+/// Las construcciones que el DSL Kotlin/Python transportaba como cadenas en `config` se
+/// convierten en campos tipados y se eliminan del mapa de configuración:
+/// `mode = "pure"`, `privileged`, `observability = "hidden"`, `phenomena_json`, `vary_json` y
+/// las claves epistémicas `question_json`/`ask_json`/`guard_json` de los nodos del sistema.
+fn lift_v01_to_v02(
+    mut experiment: AdaptiveExperimentSpec,
+) -> Result<(AdaptiveExperimentSpec, Vec<String>, Vec<SpecDiagnostic>), SpecError> {
+    let mut steps = vec!["upgrade_schema_version:v0.1->v0.2".to_owned()];
+    let mut diagnostics = Vec::new();
+    experiment.schema_version = ADAPTIVE_EXPERIMENT_SPEC_SCHEMA_VERSION_V2.to_owned();
+
+    let hidden_world = matches!(
+        experiment.world.config.get("observability"),
+        Some(SpecConfigValue::String(value)) if value == "hidden"
+    );
+
+    for (i, agent) in experiment.agents.iter_mut().enumerate() {
+        agent.schema_version = ADAPTIVE_AGENT_SPEC_SCHEMA_VERSION_V2.to_owned();
+
+        if matches!(
+            agent.config.get("mode"),
+            Some(SpecConfigValue::String(value)) if value == "pure"
+        ) {
+            agent.config.remove("mode");
+            if agent.principle.is_none() {
+                agent.principle = Some(PrincipleSpec {
+                    kind: gogamen_core::SelectionPrinciple::Pure,
+                    observables: Vec::new(),
+                });
+                diagnostics.push(SpecDiagnostic::new(
+                    format!("$.agents[{i}].config.mode"),
+                    "lifted legacy 'engine = pure' into agent.principle",
+                ));
+                steps.push("lift_agent_principle".to_owned());
+            }
+        }
+
+        if matches!(
+            agent.model.config.get("privileged"),
+            Some(SpecConfigValue::Bool(true))
+        ) {
+            agent.model.config.remove("privileged");
+            agent.model.privileged = true;
+            diagnostics.push(SpecDiagnostic::new(
+                format!("$.agents[{i}].model.config.privileged"),
+                "lifted legacy privileged model flag into model.privileged",
+            ));
+            steps.push("lift_model_privilege".to_owned());
+        }
+
+        if hidden_world {
+            agent.model_access = ModelAccess::Hidden;
+        }
+
+        let mut epistemic = agent.epistemic.clone().unwrap_or(EpistemicSpec {
+            question: None,
+            ask: None,
+            guard: None,
+        });
+        let mut lifted_epistemic = false;
+        for (j, node) in agent.system.nodes.iter_mut().enumerate() {
+            for key in ["question_json", "ask_json", "guard_json"] {
+                let Some(SpecConfigValue::String(raw)) = node.config.get(key).cloned() else {
+                    continue;
+                };
+                let path = format!("$.agents[{i}].system.nodes[{j}].config.{key}");
+                match key {
+                    "question_json" => {
+                        if epistemic.question.is_some() {
+                            return Err(migration_invalid(&path, "duplicate question_json"));
+                        }
+                        epistemic.question = Some(EpistemicQuestionSpec::from_json(&raw)?);
+                    }
+                    "ask_json" => {
+                        if epistemic.ask.is_some() {
+                            return Err(migration_invalid(&path, "duplicate ask_json"));
+                        }
+                        epistemic.ask = Some(crate::epistemic::AskActionSpec::from_json(&raw)?);
+                    }
+                    "guard_json" => {
+                        if epistemic.guard.is_some() {
+                            return Err(migration_invalid(&path, "duplicate guard_json"));
+                        }
+                        epistemic.guard =
+                            Some(crate::epistemic::GuardPolicySpec::from_json(&raw)?);
+                    }
+                    _ => unreachable!("epistemic config key set"),
+                }
+                node.config.remove(key);
+                lifted_epistemic = true;
+                diagnostics.push(SpecDiagnostic::new(
+                    path,
+                    format!("lifted legacy {key} into agent.epistemic"),
+                ));
+            }
+        }
+        if lifted_epistemic {
+            agent.epistemic = Some(epistemic);
+            steps.push("lift_epistemic_config".to_owned());
+        }
+    }
+
+    if hidden_world {
+        diagnostics.push(SpecDiagnostic::new(
+            "$.world.config.observability",
+            "mapped world observability 'hidden' to agent.model_access = hidden",
+        ));
+        steps.push("lift_world_model_access".to_owned());
+    }
+
+    if let Some(SpecConfigValue::String(raw)) = experiment.config.get("phenomena_json").cloned() {
+        let phenomena = lift_phenomena_config(&raw, "$.config.phenomena_json")?;
+        for agent in &mut experiment.agents {
+            if agent.phenomena.is_empty() {
+                agent.phenomena = phenomena.clone();
+            }
+        }
+        experiment.config.remove("phenomena_json");
+        diagnostics.push(SpecDiagnostic::new(
+            "$.config.phenomena_json",
+            format!(
+                "lifted {} phenomena into agent.phenomena",
+                phenomena.len()
+            ),
+        ));
+        steps.push("lift_phenomena".to_owned());
+    }
+
+    if let Some(SpecConfigValue::String(raw)) = experiment.config.get("vary_json").cloned() {
+        let value = parse_json(&raw)?;
+        experiment.vary = parse_vary(&value, UnknownFieldPolicy::Reject, "vary")?;
+        experiment.config.remove("vary_json");
+        diagnostics.push(SpecDiagnostic::new(
+            "$.config.vary_json",
+            format!("lifted {} vary axes into experiment.vary", experiment.vary.len()),
+        ));
+        steps.push("lift_vary".to_owned());
+    }
+
+    if experiment.config.contains_key("readings_json") {
+        diagnostics.push(SpecDiagnostic::new(
+            "$.config.readings_json",
+            "readings are not part of the typed contract yet; kept as legacy config",
+        ));
+    }
+
+    Ok((experiment, steps, diagnostics))
+}
+
+fn migration_invalid(path: &str, reason: &str) -> SpecError {
+    SpecError::InvalidFieldValue {
+        context: "ExperimentSpecMigration",
+        field: "<field>",
+        reason: format!("{path}: {reason}"),
+    }
+}
+
+/// Parsea un `phenomena_json` legado. El DSL Kotlin no declara `observable`; en ese caso se
+/// deriva la primera variable de la expresión del predicado (o el id del fenómeno como último
+/// recurso) para no inventar una medición inexistente.
+fn lift_phenomena_config(raw: &str, path: &str) -> Result<Vec<PhenomenonSpec>, SpecError> {
+    let mut value = parse_json(raw)?;
+    if let JsonValue::Array(items) = &mut value {
+        for (i, item) in items.iter_mut().enumerate() {
+            let JsonValue::Object(map) = item else {
+                return Err(migration_invalid(
+                    &format!("{path}[{i}]"),
+                    "expected JSON object",
+                ));
+            };
+            if !map.contains_key("observable") {
+                let id = match map.get("id") {
+                    Some(JsonValue::String(id)) => id.clone(),
+                    _ => String::new(),
+                };
+                let derived = ["expr", "trigger", "then"]
+                    .iter()
+                    .find_map(|key| map.get(*key).and_then(first_variable_json))
+                    .unwrap_or(id);
+                map.insert(
+                    "observable".to_owned(),
+                    JsonValue::String(derived),
+                );
+            }
+        }
+    }
+    parse_phenomena(&value, UnknownFieldPolicy::Reject, path)
+}
+
+fn first_variable_json(value: &JsonValue) -> Option<String> {
+    match value {
+        JsonValue::Object(map) => {
+            if matches!(
+                map.get("op"),
+                Some(JsonValue::String(op)) if op == "var"
+            ) {
+                if let Some(JsonValue::String(name)) = map.get("name") {
+                    return Some(name.clone());
+                }
+            }
+            map.values().find_map(first_variable_json)
+        }
+        JsonValue::Array(items) => items.iter().find_map(first_variable_json),
+        _ => None,
+    }
 }
 
 /// Construye un fixture canónico determinista de experimento Grid 5x5 sin UI.
@@ -1189,6 +1772,16 @@ fn reject_code_eval_in_config(
     Ok(())
 }
 
+fn ensure_v2(v2: bool, present: bool, path: &str) -> Result<(), SpecError> {
+    if present && !v2 {
+        return Err(SpecError::TypedFieldRequiresV2 {
+            path: path.to_owned(),
+            expected: ADAPTIVE_AGENT_SPEC_SCHEMA_VERSION_V2,
+        });
+    }
+    Ok(())
+}
+
 fn validate_unique_goals(goals: &[GoalSpec], context: &'static str) -> Result<(), SpecError> {
     let mut seen = BTreeSet::new();
     for goal in goals {
@@ -1262,6 +1855,9 @@ fn write_model_spec_ref(out: &mut String, model: &ModelSpecRef) -> Result<(), Sp
     write_json_string(out, &model.kind);
     out.push_str(",\"model_id\":");
     write_json_string(out, &model.model_id);
+    if model.privileged {
+        out.push_str(",\"privileged\":true");
+    }
     out.push('}');
     Ok(())
 }
@@ -1328,6 +1924,10 @@ fn write_adaptive_agent_spec(out: &mut String, agent: &AdaptiveAgentSpec) -> Res
     }
     out.push_str("],\"agent_id\":");
     write_json_string(out, &agent.agent_id);
+    if let Some(cognitive) = &agent.cognitive {
+        out.push_str(",\"cognitive\":");
+        cognitive.write_json(out)?;
+    }
     out.push_str(",\"config\":");
     write_config_map(out, &agent.config)?;
     out.push_str(",\"constraints\":[");
@@ -1344,8 +1944,44 @@ fn write_adaptive_agent_spec(out: &mut String, agent: &AdaptiveAgentSpec) -> Res
         }
         write_goal_spec(out, goal)?;
     }
-    out.push_str("],\"model\":");
+    out.push(']');
+    if let Some(epistemic) = &agent.epistemic {
+        out.push_str(",\"epistemic\":");
+        out.push_str(&epistemic.to_canonical_json()?);
+    }
+    if let Some(learning) = &agent.learn {
+        out.push_str(",\"learn\":{\"learning_rate\":");
+        write_canonical_f64(out, learning.learning_rate)?;
+        out.push_str(",\"model\":");
+        write_json_string(out, &learning.model);
+        out.push_str(",\"rule\":");
+        write_json_string(out, learning.rule.as_str());
+        let _ = write!(out, ",\"update_every_ticks\":{}}}", learning.update_every_ticks);
+    }
+    out.push_str(",\"model\":");
     write_model_spec_ref(out, &agent.model)?;
+    if agent.model_access != ModelAccess::Visible {
+        out.push_str(",\"model_access\":");
+        write_json_string(out, agent.model_access.name());
+    }
+    if !agent.phenomena.is_empty() {
+        out.push_str(",\"phenomena\":[");
+        for (idx, phenomenon) in agent.phenomena.iter().enumerate() {
+            if idx > 0 {
+                out.push(',');
+            }
+            crate::endowment::write_phenomenon(out, phenomenon)?;
+        }
+        out.push(']');
+    }
+    if let Some(principle) = &agent.principle {
+        out.push_str(",\"principle\":");
+        crate::endowment::write_principle_spec(out, principle);
+    }
+    if let Some(scale) = &agent.scale {
+        out.push_str(",\"scale\":");
+        crate::endowment::write_scale_spec(out, scale);
+    }
     out.push_str(",\"schema_version\":");
     write_json_string(out, &agent.schema_version);
     out.push_str(",\"sensors\":[");
@@ -1374,6 +2010,10 @@ fn write_adaptive_experiment_spec(
     }
     out.push_str("],\"budget\":");
     write_budget_spec(out, &exp.budget);
+    if let Some(cognitive) = &exp.cognitive {
+        out.push_str(",\"cognitive\":");
+        cognitive.write_json(out)?;
+    }
     out.push_str(",\"config\":");
     write_config_map(out, &exp.config)?;
     out.push_str(",\"constraints\":[");
@@ -1392,12 +2032,38 @@ fn write_adaptive_experiment_spec(
         }
         write_goal_spec(out, goal)?;
     }
-    out.push_str("],\"schema_version\":");
+    out.push(']');
+    if !exp.hypotheses.is_empty() {
+        out.push_str(",\"hypotheses\":");
+        out.push_str(&canonical_hypotheses_json(&exp.hypotheses)?);
+    }
+    out.push_str(",\"schema_version\":");
     write_json_string(out, &exp.schema_version);
     out.push_str(",\"seeds\":");
     write_seed_spec(out, &exp.seeds);
     out.push_str(",\"system\":");
     write_system_spec(out, &exp.system)?;
+    if !exp.vary.is_empty() {
+        out.push_str(",\"vary\":[");
+        let mut axes: Vec<&VaryAxisSpec> = exp.vary.iter().collect();
+        axes.sort_by(|a, b| a.param.cmp(&b.param));
+        for (idx, axis) in axes.into_iter().enumerate() {
+            if idx > 0 {
+                out.push(',');
+            }
+            out.push_str("{\"param\":");
+            write_json_string(out, &axis.param);
+            out.push_str(",\"values\":[");
+            for (j, value) in axis.values.iter().enumerate() {
+                if j > 0 {
+                    out.push(',');
+                }
+                write_canonical_f64(out, *value)?;
+            }
+            out.push_str("]}");
+        }
+        out.push(']');
+    }
     out.push_str(",\"world\":");
     write_world_spec_ref(out, &exp.world)?;
     out.push('}');
@@ -1483,11 +2149,28 @@ fn parse_model_spec_ref(
 ) -> Result<ModelSpecRef, SpecError> {
     const CTX: &str = "ModelSpecRef";
     let map = as_object(value, CTX)?;
-    reject_unknown_fields(map, &["model_id", "kind", "config"], CTX, policy)?;
+    reject_unknown_fields(
+        map,
+        &["model_id", "kind", "config", "privileged"],
+        CTX,
+        policy,
+    )?;
+    let privileged = match map.get("privileged") {
+        Some(JsonValue::Bool(value)) => *value,
+        Some(_) => {
+            return Err(SpecError::InvalidFieldValue {
+                context: CTX,
+                field: "privileged",
+                reason: "expected boolean".to_owned(),
+            });
+        }
+        None => false,
+    };
     Ok(ModelSpecRef {
         model_id: require_string(map, "model_id", CTX)?.to_owned(),
         kind: require_string(map, "kind", CTX)?.to_owned(),
         config: parse_optional_config(map, CTX)?,
+        privileged,
     })
 }
 
@@ -1594,13 +2277,20 @@ fn parse_adaptive_agent_spec(
             "actions",
             "goals",
             "constraints",
+            "cognitive",
+            "principle",
+            "scale",
+            "learn",
+            "phenomena",
+            "model_access",
+            "epistemic",
             "config",
         ],
         CTX,
         policy,
     )?;
 
-    let schema_version = require_schema_version(map, ADAPTIVE_AGENT_SPEC_SCHEMA_VERSION, CTX)?;
+    let schema_version = require_any_schema_version(map, AGENT_SCHEMA_VERSIONS, CTX)?;
     let agent_id = require_string(map, "agent_id", CTX)?.to_owned();
     let system = parse_system_spec(require_field(map, "system", CTX)?, policy)?;
 
@@ -1641,6 +2331,44 @@ fn parse_adaptive_agent_spec(
 
     let config = parse_optional_config(map, CTX)?;
 
+    let principle = map
+        .get("principle")
+        .map(|value| parse_principle_spec(value, policy, "agent.principle"))
+        .transpose()?;
+    let scale = map
+        .get("scale")
+        .map(|value| parse_scale_spec(value, policy, "agent.scale"))
+        .transpose()?;
+    let learn = map
+        .get("learn")
+        .map(|value| parse_learning_spec(value, policy, "agent.learn"))
+        .transpose()?;
+    let phenomena = match map.get("phenomena") {
+        Some(value) => parse_phenomena(value, policy, "agent.phenomena")?,
+        None => Vec::new(),
+    };
+    let model_access = match map.get("model_access") {
+        Some(JsonValue::String(raw)) => ModelAccess::parse(raw).ok_or_else(|| {
+            SpecError::UnknownVariant {
+                path: "agent.model_access".to_owned(),
+                value: raw.chars().take(64).collect(),
+                expected: ModelAccess::EXPECTED,
+            }
+        })?,
+        Some(_) => {
+            return Err(SpecError::InvalidFieldValue {
+                context: CTX,
+                field: "model_access",
+                reason: "expected string".to_owned(),
+            });
+        }
+        None => ModelAccess::Visible,
+    };
+    let epistemic = map
+        .get("epistemic")
+        .map(|value| EpistemicSpec::from_json_value(value, policy))
+        .transpose()?;
+
     Ok(AdaptiveAgentSpec {
         schema_version,
         agent_id,
@@ -1650,8 +2378,24 @@ fn parse_adaptive_agent_spec(
         actions,
         goals,
         constraints,
+        cognitive: parse_optional_cognitive(map, policy)?,
+        principle,
+        scale,
+        learn,
+        phenomena,
+        model_access,
+        epistemic,
         config,
     })
+}
+
+fn parse_optional_cognitive(
+    map: &BTreeMap<String, JsonValue>,
+    policy: UnknownFieldPolicy,
+) -> Result<Option<CognitiveSpec>, SpecError> {
+    map.get("cognitive")
+        .map(|v| CognitiveSpec::from_json_value(v, policy))
+        .transpose()
 }
 
 fn parse_adaptive_experiment_spec(
@@ -1672,13 +2416,16 @@ fn parse_adaptive_experiment_spec(
             "constraints",
             "budget",
             "seeds",
+            "cognitive",
+            "hypotheses",
+            "vary",
             "config",
         ],
         CTX,
         policy,
     )?;
 
-    let schema_version = require_schema_version(map, ADAPTIVE_EXPERIMENT_SPEC_SCHEMA_VERSION, CTX)?;
+    let schema_version = require_any_schema_version(map, EXPERIMENT_SCHEMA_VERSIONS, CTX)?;
     let experiment_id = require_string(map, "experiment_id", CTX)?.to_owned();
     let world = parse_world_spec_ref(require_field(map, "world", CTX)?, policy)?;
     let system = parse_system_spec(require_field(map, "system", CTX)?, policy)?;
@@ -1704,6 +2451,10 @@ fn parse_adaptive_experiment_spec(
     let budget = parse_budget_spec(require_field(map, "budget", CTX)?, policy)?;
     let seeds = parse_seed_spec(require_field(map, "seeds", CTX)?, policy)?;
     let config = parse_optional_config(map, CTX)?;
+    let vary = match map.get("vary") {
+        Some(value) => parse_vary(value, policy, "vary")?,
+        None => Vec::new(),
+    };
 
     Ok(AdaptiveExperimentSpec {
         schema_version,
@@ -1715,6 +2466,170 @@ fn parse_adaptive_experiment_spec(
         constraints,
         budget,
         seeds,
+        cognitive: parse_optional_cognitive(map, policy)?,
+        hypotheses: parse_hypotheses(map, policy)?,
+        vary,
         config,
     })
+}
+
+fn require_any_schema_version(
+    map: &BTreeMap<String, JsonValue>,
+    allowed: &'static [&'static str],
+    context: &'static str,
+) -> Result<String, SpecError> {
+    let found = match map.get("schema_version") {
+        Some(JsonValue::String(s)) => s.clone(),
+        Some(_) => {
+            return Err(SpecError::InvalidFieldValue {
+                context,
+                field: "schema_version",
+                reason: "expected string".to_owned(),
+            });
+        }
+        None => {
+            return Err(SpecError::MissingField {
+                context,
+                field: "schema_version",
+            });
+        }
+    };
+    if !allowed.contains(&found.as_str()) {
+        return Err(SpecError::IncompatibleSchemaVersion {
+            expected: allowed.last().copied().unwrap_or(""),
+            found,
+        });
+    }
+    Ok(found)
+}
+
+/// Fixture Grid v0.2: principio dirigido, escala 7x7, aprendizaje, fenómeno e hipótesis.
+///
+/// Es el contrato versionado que ejercita el libro de dotación sobre el experimento Grid
+/// canónico (mismo sistema y sensores que GOG-158, sin UI).
+pub fn canonical_grid_endowment_experiment_fixture() -> AdaptiveExperimentSpec {
+    let mut experiment = crate::cognitive::canonical_grid_cognitive_spec_experiment_fixture();
+    experiment.experiment_id = "grid_endowment_v0_2".to_owned();
+    experiment.schema_version = ADAPTIVE_EXPERIMENT_SPEC_SCHEMA_VERSION_V2.to_owned();
+    experiment.vary = vec![VaryAxisSpec {
+        param: "cognitive.entropic.temperature".to_owned(),
+        values: vec![0.25, 0.5],
+    }];
+    experiment.hypotheses = vec![HypothesisSpec::new(
+        "h1_learning_improves",
+        "planning on the learned model narrows the gap to the privileged ceiling",
+        "success_rate",
+        HypothesisComparator::Ge,
+        0.8,
+        HypothesisComparator::Lt,
+        0.3,
+    )];
+
+    let agent = &mut experiment.agents[0];
+    agent.schema_version = ADAPTIVE_AGENT_SPEC_SCHEMA_VERSION_V2.to_owned();
+    agent.principle = Some(PrincipleSpec {
+        kind: gogamen_core::SelectionPrinciple::Directed,
+        observables: vec!["reward".to_owned()],
+    });
+    agent.scale = Some(ScaleSpec {
+        scale_id: "grid.local_fov.25".to_owned(),
+        binning_major: 1,
+        binning_minor: 0,
+        axes: vec![ScaleAxisSpec {
+            min: 0.0,
+            max: 6.0,
+            bins: 25,
+        }],
+    });
+    agent.learn = agent
+        .cognitive
+        .as_ref()
+        .map(|cognitive| cognitive.learning.clone());
+    agent.phenomena = vec![PhenomenonSpec {
+        phenomenon_id: "goal_reached".to_owned(),
+        observable: "reward".to_owned(),
+        predicate: crate::endowment::PhenomenonPredicate::Eventually {
+            expr: ExprAst::gt(
+                ExprAst::var("reward").expect("valid var"),
+                ExprAst::const_f64(0.0).expect("finite"),
+            ),
+            within_ticks: Some(200),
+        },
+    }];
+    experiment
+}
+
+/// Exporta el fixture Grid v0.2 en JSON canónico determinista.
+pub fn canonical_grid_endowment_experiment_fixture_json() -> String {
+    canonical_grid_endowment_experiment_fixture()
+        .to_canonical_json()
+        .expect("canonical grid endowment fixture must serialize")
+}
+
+/// Fixture Kart v0.2: principio dirigido, escala de velocidad/dirección, fenómeno de rate.
+pub fn canonical_kart_endowment_experiment_fixture() -> AdaptiveExperimentSpec {
+    let mut experiment = crate::cognitive::canonical_kart_cognitive_spec_experiment_fixture();
+    experiment.experiment_id = "kart_endowment_v0_2".to_owned();
+    experiment.schema_version = ADAPTIVE_EXPERIMENT_SPEC_SCHEMA_VERSION_V2.to_owned();
+    experiment.vary = vec![VaryAxisSpec {
+        param: "cognitive.learning.learning_rate".to_owned(),
+        values: vec![0.05, 0.1],
+    }];
+    experiment.hypotheses = vec![HypothesisSpec::new(
+        "h2_collision_rate_bound",
+        "the directed kart keeps collisions below the declared budget",
+        "collision_rate",
+        HypothesisComparator::Le,
+        0.2,
+        HypothesisComparator::Gt,
+        0.5,
+    )];
+
+    let agent = &mut experiment.agents[0];
+    agent.schema_version = ADAPTIVE_AGENT_SPEC_SCHEMA_VERSION_V2.to_owned();
+    agent.principle = Some(PrincipleSpec {
+        kind: gogamen_core::SelectionPrinciple::Directed,
+        observables: vec!["collision".to_owned(), "progress".to_owned()],
+    });
+    agent.scale = Some(ScaleSpec {
+        scale_id: "kart.speed_steering".to_owned(),
+        binning_major: 1,
+        binning_minor: 0,
+        axes: vec![
+            ScaleAxisSpec {
+                min: 0.0,
+                max: 20.0,
+                bins: 16,
+            },
+            ScaleAxisSpec {
+                min: -1.0,
+                max: 1.0,
+                bins: 8,
+            },
+        ],
+    });
+    agent.learn = agent
+        .cognitive
+        .as_ref()
+        .map(|cognitive| cognitive.learning.clone());
+    agent.phenomena = vec![PhenomenonSpec {
+        phenomenon_id: "collision_free_lap".to_owned(),
+        observable: "collision".to_owned(),
+        predicate: crate::endowment::PhenomenonPredicate::Rate {
+            expr: ExprAst::gt(
+                ExprAst::var("collision").expect("valid var"),
+                ExprAst::const_f64(0.0).expect("finite"),
+            ),
+            comparator: HypothesisComparator::Le,
+            threshold: 0.1,
+        },
+    }];
+    experiment
+}
+
+/// Exporta el fixture Kart v0.2 en JSON canónico determinista.
+pub fn canonical_kart_endowment_experiment_fixture_json() -> String {
+    canonical_kart_endowment_experiment_fixture()
+        .to_canonical_json()
+        .expect("canonical kart endowment fixture must serialize")
 }

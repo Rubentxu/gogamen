@@ -4,36 +4,64 @@
 //! para describir sistemas de nodos y conexiones causales tipadas sin DSL ni código arbitrario,
 //! junto con [`AgentSpec`] y [`ExperimentSpec`] compuestos sobre [`SystemSpec`].
 //!
+//! El bloque opcional [`CognitiveSpec`] (política entrópica, resolución, aprendizaje, memoria)
+//! se adjunta de forma aditiva a [`AdaptiveAgentSpec`] y [`AdaptiveExperimentSpec`]; ver [`cognitive`].
+//!
 //! # Aislamiento de dependencias
 //! `gogamen-spec` depende únicamente de `std` y `gogamen-core` (sin `serde` ni crates externos).
 
 pub mod adaptive;
 pub mod codec;
+pub mod cognitive;
+pub mod endowment;
 pub mod epistemic;
 pub mod error;
 pub mod expr;
+pub mod hypothesis;
 pub mod json;
 pub mod model;
 
 pub use adaptive::{
-    ADAPTIVE_AGENT_SPEC_SCHEMA_VERSION, ADAPTIVE_EXPERIMENT_SPEC_SCHEMA_VERSION, ActionRegistry,
-    AdaptiveAgentSpec, AdaptiveExperimentSpec, BudgetSpec, CapabilityCatalog, ConstraintSpec,
-    GoalSpec, MigratedExperimentSpec, ModelSpecRef, SchemaMigrationReport, SeedSpec,
-    SensorBindingSpec, WorldSpecRef, canonical_cognitive_grid_experiment_fixture,
-    canonical_cognitive_grid_experiment_fixture_json, canonical_grid_experiment_fixture,
-    canonical_grid_experiment_fixture_json, migrate_experiment_spec_json,
+    ADAPTIVE_AGENT_SPEC_SCHEMA_VERSION, ADAPTIVE_AGENT_SPEC_SCHEMA_VERSION_V2,
+    ADAPTIVE_EXPERIMENT_SPEC_SCHEMA_VERSION, ADAPTIVE_EXPERIMENT_SPEC_SCHEMA_VERSION_V2,
+    ActionRegistry, AdaptiveAgentSpec, AdaptiveExperimentSpec, BudgetSpec, CapabilityCatalog,
+    ConstraintSpec, GoalSpec, MigratedExperimentSpec, ModelSpecRef, SchemaMigrationReport,
+    SeedSpec, SensorBindingSpec, WorldSpecRef, canonical_cognitive_grid_experiment_fixture,
+    canonical_cognitive_grid_experiment_fixture_json,
+    canonical_grid_endowment_experiment_fixture,
+    canonical_grid_endowment_experiment_fixture_json, canonical_grid_experiment_fixture,
+    canonical_grid_experiment_fixture_json,
+    canonical_kart_endowment_experiment_fixture,
+    canonical_kart_endowment_experiment_fixture_json, migrate_experiment_spec_json,
 };
 pub use codec::{
     canonical_cognitive_agent_fixture, canonical_cognitive_agent_fixture_json,
     canonical_language_world_fixture, canonical_language_world_fixture_json,
     canonical_two_node_fixture, canonical_two_node_fixture_json,
 };
+pub use cognitive::{
+    COGNITIVE_SPEC_SCHEMA_VERSION, CognitiveRefs, CognitiveSpec, EntropicObjective,
+    EntropicPolicySpec, LearningRule, LearningSpec, MAX_COGNITIVE_ID_BYTES, MAX_ENTROPIC_HORIZON,
+    MAX_MEMORY_CAPACITY, MAX_RESOLUTION_BINS, MAX_RESOLUTION_LEVELS, MEMORY_PORT_TYPE_NAME,
+    MemoryKind, MemoryPermission, MemoryPortRef, MemorySpec, ResolutionLevelSpec, ResolutionSpec,
+    canonical_grid_cognitive_spec_experiment_fixture,
+    canonical_kart_cognitive_spec_experiment_fixture,
+};
+pub use endowment::{
+    AgentEndowment, ENDOWMENT_BOOK_SCHEMA_VERSION, EndowmentBook, EndowmentPhenomenon,
+    EndowmentWorld, ModelAccess, PhenomenonPredicate, PhenomenonSpec, PrincipleSpec, ScaleAxisSpec,
+    ScaleSpec, VaryAxisSpec,
+};
 pub use epistemic::{
     AVAILABLE_EPISTEMIC_MODELS, AbstentionPolicySpec, AskActionSpec, EpistemicQuestionSpec,
-    GuardPolicySpec, InspectActionSpec, ProvenanceSpec,
+    EpistemicSpec, GuardPolicySpec, InspectActionSpec, ProvenanceSpec,
 };
 pub use error::{SpecDiagnostic, SpecError, SpecMigrationError, UnknownFieldPolicy};
 pub use expr::{EXPR_AST_MAX_DEPTH, ExprAst, ExprType, ExprUnit};
+pub use hypothesis::{
+    HypothesisComparator, HypothesisSpec, canonical_hypotheses_json, hypotheses_hash,
+    validate_hypotheses,
+};
 pub use json::{
     DEFAULT_JSON_MAX_BYTES, DEFAULT_JSON_MAX_ELEMENTS, DEFAULT_JSON_MAX_STRING_BYTES, JsonLimits,
     JsonNumber, JsonValue, parse_json, parse_with_limits, write_canonical_f64, write_json_string,
@@ -379,7 +407,7 @@ mod tests {
     }
 
     #[test]
-    fn migrates_legacy_experiment_v0_to_v0_1_and_reports_diagnostics() {
+    fn migrates_legacy_experiment_v0_to_v0_2_and_reports_diagnostics() {
         let base_system = canonical_two_node_fixture();
         let legacy_agent = AgentSpec::new("legacy_agent", base_system.clone())
             .with_config("exploration", SpecConfigValue::f64(0.2).unwrap());
@@ -388,11 +416,15 @@ mod tests {
             .with_config("episodes", SpecConfigValue::I64(5));
         let legacy_json = legacy_exp.to_canonical_json().unwrap();
 
-        let migrated =
-            migrate_experiment_spec_json(&legacy_json).expect("v0 -> v0.1 migration must succeed");
+        let migrated = migrate_experiment_spec_json(&legacy_json)
+            .expect("v0 -> v0.2 migration must succeed");
         assert_eq!(
             migrated.spec.schema_version,
-            ADAPTIVE_EXPERIMENT_SPEC_SCHEMA_VERSION
+            ADAPTIVE_EXPERIMENT_SPEC_SCHEMA_VERSION_V2
+        );
+        assert_eq!(
+            migrated.spec.agents[0].schema_version,
+            ADAPTIVE_AGENT_SPEC_SCHEMA_VERSION_V2
         );
         assert_eq!(migrated.spec.experiment_id, "exp_legacy_01");
         assert_eq!(migrated.spec.seeds.dev_seeds, vec![42]);
@@ -406,8 +438,18 @@ mod tests {
         );
         assert_eq!(
             migrated.report.target_version,
-            ADAPTIVE_EXPERIMENT_SPEC_SCHEMA_VERSION
+            ADAPTIVE_EXPERIMENT_SPEC_SCHEMA_VERSION_V2
         );
+        assert!(migrated
+            .report
+            .applied_steps
+            .iter()
+            .any(|step| step == "upgrade_schema_version:v0->v0.1"));
+        assert!(migrated
+            .report
+            .applied_steps
+            .iter()
+            .any(|step| step == "upgrade_schema_version:v0.1->v0.2"));
         assert!(!migrated.report.diagnostics.is_empty());
 
         let registry = ActionRegistry::canonical_grid_defaults();
@@ -416,17 +458,40 @@ mod tests {
             .validate_with_registry(&registry)
             .expect("migrated spec must validate with default registry");
 
+        // Compatibilidad: un artefacto v0.1 (incluido el golden del DSL cognitivo) sigue
+        // parseándose y ascendiendo hasta el contrato v0.2.
         let v01_json = canonical_grid_experiment_fixture_json();
+        let lifted = migrate_experiment_spec_json(&v01_json).expect("v0.1 lift must succeed");
+        assert_eq!(
+            lifted.report.source_version,
+            ADAPTIVE_EXPERIMENT_SPEC_SCHEMA_VERSION
+        );
+        assert_eq!(
+            lifted.report.target_version,
+            ADAPTIVE_EXPERIMENT_SPEC_SCHEMA_VERSION_V2
+        );
+        assert_eq!(
+            lifted.report.applied_steps,
+            vec!["upgrade_schema_version:v0.1->v0.2"]
+        );
+
+        // Un artefacto ya v0.2 es un passthrough sin pasos aplicados.
+        let v02_json = canonical_grid_endowment_experiment_fixture_json();
         let passthrough =
-            migrate_experiment_spec_json(&v01_json).expect("v0.1 passthrough must succeed");
+            migrate_experiment_spec_json(&v02_json).expect("v0.2 passthrough must succeed");
         assert_eq!(
             passthrough.report.source_version,
-            ADAPTIVE_EXPERIMENT_SPEC_SCHEMA_VERSION
+            ADAPTIVE_EXPERIMENT_SPEC_SCHEMA_VERSION_V2
+        );
+        assert_eq!(
+            passthrough.report.target_version,
+            ADAPTIVE_EXPERIMENT_SPEC_SCHEMA_VERSION_V2
         );
         assert_eq!(
             passthrough.report.applied_steps,
             vec!["already_at_target_version"]
         );
+        assert!(passthrough.report.diagnostics.is_empty());
 
         let bad_version_json = v01_json.replace(
             ADAPTIVE_EXPERIMENT_SPEC_SCHEMA_VERSION,
