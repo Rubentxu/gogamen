@@ -19,6 +19,19 @@ class GogamenProtocolError(GogamenError):
     """Error de transporte, serialización JSON o petición inválida del protocolo."""
 
 
+class GogamenTimeoutError(GogamenProtocolError):
+    """El servidor residente no respondió dentro del timeout configurado.
+
+    Tras este error el cliente queda cerrado (proceso terminado y recogido) y es
+    inutilizable: hay que crear un `GogamenClient` nuevo. `stderr_tail` contiene
+    los últimos bytes de stderr del hijo (decodificados) para diagnóstico.
+    """
+
+    def __init__(self, message: str, *, code: str = "Timeout", stderr_tail: str = "") -> None:
+        super().__init__(message, code=code)
+        self.stderr_tail = stderr_tail
+
+
 class GogamenSessionError(GogamenError):
     """Error de ciclo de vida de sesión (desconocida, cerrada o ya terminal)."""
 

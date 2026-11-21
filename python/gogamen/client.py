@@ -2,15 +2,23 @@
 
 from __future__ import annotations
 
+from collections import deque
 from dataclasses import dataclass
 import json
 import os
 from pathlib import Path
 import shutil
+import queue
 import subprocess
-from typing import Any
+import threading
+from typing import Any, Sequence
 
-from .errors import GogamenProtocolError, raise_for_protocol_error
+from .errors import GogamenProtocolError, GogamenTimeoutError, raise_for_protocol_error
+
+DEFAULT_REQUEST_TIMEOUT_S = 30.0
+DEFAULT_STDERR_TAIL_BYTES = 64 * 1024
+_TERMINATE_GRACE_S = 2.0
+_KILL_WAIT_S = 5.0
 
 ACTION_STAY = 0
 ACTION_UP = 1
@@ -216,18 +224,77 @@ class GridSession:
 class GogamenClient:
     """Cliente residente por `stdin`/`stdout` JSON-Lines sobre `gogamen serve-protocol`."""
 
-    def __init__(self, binary_path: str | os.PathLike[str] | None = None) -> None:
-        resolved = resolve_gogamen_binary(binary_path)
+    def __init__(
+        self,
+        binary_path: str | os.PathLike[str] | None = None,
+        *,
+        request_timeout: float | None = DEFAULT_REQUEST_TIMEOUT_S,
+        stderr_tail_bytes: int = DEFAULT_STDERR_TAIL_BYTES,
+        command: Sequence[str] | None = None,
+    ) -> None:
+        """Lanza el proceso residente.
+
+        `request_timeout` (segundos, `None` = sin límite) acota cada request. Tras un
+        timeout el cliente se cierra y NO es reutilizable (crear uno nuevo).
+        `command` permite sustituir el argv completo (tests con servidores falsos).
+        """
+        argv = list(command) if command is not None else [resolve_gogamen_binary(binary_path), "serve-protocol"]
+        self._request_timeout = request_timeout
+        self._stderr_tail: deque[bytes] = deque()
+        self._stderr_tail_len = 0
+        self._stderr_tail_max = max(1, stderr_tail_bytes)
+        self._stderr_lock = threading.Lock()
+        self._stdout_queue: queue.Queue[bytes | None] = queue.Queue()
+        self._closed = False
         self._proc = subprocess.Popen(
-            [resolved, "serve-protocol"],
+            argv,
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
-            text=True,
-            encoding="utf-8",
-            bufsize=1,
+            bufsize=0,
         )
         self._next_id = 1
+        self._stdout_thread = threading.Thread(
+            target=self._pump_stdout, name="gogamen-stdout", daemon=True
+        )
+        self._stderr_thread = threading.Thread(
+            target=self._drain_stderr, name="gogamen-stderr", daemon=True
+        )
+        self._stdout_thread.start()
+        self._stderr_thread.start()
+
+    def _pump_stdout(self) -> None:
+        stream = self._proc.stdout
+        try:
+            with os.fdopen(os.dup(stream.fileno()), "rb") as buffered:
+                for line in iter(buffered.readline, b""):
+                    self._stdout_queue.put(line)
+        except (OSError, ValueError):
+            pass
+        finally:
+            self._stdout_queue.put(None)
+
+    def _drain_stderr(self) -> None:
+        """Drena stderr continuamente a un buffer acotado (últimos N bytes)."""
+        stream = self._proc.stderr
+        try:
+            while True:
+                chunk = os.read(stream.fileno(), 65536)
+                if not chunk:
+                    return
+                with self._stderr_lock:
+                    self._stderr_tail.append(chunk)
+                    self._stderr_tail_len += len(chunk)
+                    while self._stderr_tail_len - len(self._stderr_tail[0]) >= self._stderr_tail_max:
+                        self._stderr_tail_len -= len(self._stderr_tail.popleft())
+        except (OSError, ValueError):
+            return
+
+    def stderr_tail(self) -> str:
+        """Últimos bytes de stderr del hijo (acotado), decodificados con reemplazo."""
+        with self._stderr_lock:
+            data = b"".join(self._stderr_tail)[-self._stderr_tail_max :]
+        return data.decode("utf-8", errors="replace")
 
     def __enter__(self) -> GogamenClient:
         return self
@@ -236,40 +303,77 @@ class GogamenClient:
         self.close()
 
     def close(self) -> None:
-        """Cierra el proceso residente `gogamen serve-protocol`."""
-        if self._proc.poll() is None:
-            if self._proc.stdin is not None and not self._proc.stdin.closed:
-                self._proc.stdin.close()
+        """Cierra y recoge el proceso: cierra stdin, terminate, kill tras gracia, wait. Idempotente."""
+        self._closed = True
+        proc = self._proc
+        try:
+            if proc.stdin is not None and not proc.stdin.closed:
+                proc.stdin.close()
+        except OSError:
+            pass
+        if proc.poll() is None:
             try:
-                self._proc.wait(timeout=3.0)
+                proc.wait(timeout=_TERMINATE_GRACE_S / 2)
             except subprocess.TimeoutExpired:
-                self._proc.kill()
-                self._proc.wait(timeout=1.0)
-        for stream in (self._proc.stdout, self._proc.stderr):
+                proc.terminate()
+                try:
+                    proc.wait(timeout=_TERMINATE_GRACE_S)
+                except subprocess.TimeoutExpired:
+                    proc.kill()
+                    proc.wait(timeout=_KILL_WAIT_S)
+        self._stdout_thread.join(timeout=1.0)
+        self._stderr_thread.join(timeout=1.0)
+        for stream in (proc.stdout, proc.stderr):
             if stream is not None and not stream.closed:
-                stream.close()
+                try:
+                    stream.close()
+                except OSError:
+                    pass
+
+    def _timeout(self, what: str) -> GogamenTimeoutError:
+        tail = self.stderr_tail()
+        self.close()
+        return GogamenTimeoutError(
+            f"{what} (timeout={self._request_timeout}s); cliente cerrado, crear uno nuevo. stderr: {tail.strip()[-2000:]}",
+            stderr_tail=tail,
+        )
 
     def send_raw_line(self, raw_line: str) -> dict[str, Any]:
-        """Envía una línea cruda al protocolo y decodifica la respuesta JSON."""
+        """Envía una línea cruda al protocolo y decodifica la respuesta JSON.
+
+        Lanza `GogamenTimeoutError` si no hay respuesta en `request_timeout`.
+        """
+        if self._closed:
+            raise GogamenProtocolError("cliente cerrado", code="ClientClosed")
         if self._proc.stdin is None or self._proc.stdout is None:
             raise GogamenProtocolError("streams del subproceso no disponibles", code="StreamClosed")
         if self._proc.poll() is not None:
-            stderr_out = self._proc.stderr.read() if self._proc.stderr is not None else ""
+            self._stderr_thread.join(timeout=1.0)
             raise GogamenProtocolError(
-                f"proceso gogamen terminado prematuramente (rc={self._proc.returncode}): {stderr_out.strip()}",
+                f"proceso gogamen terminado prematuramente (rc={self._proc.returncode}): {self.stderr_tail().strip()}",
                 code="ProcessExited",
             )
 
-        self._proc.stdin.write(raw_line.rstrip("\n") + "\n")
-        self._proc.stdin.flush()
-
-        response_line = self._proc.stdout.readline()
-        if not response_line:
-            stderr_out = self._proc.stderr.read() if self._proc.stderr is not None else ""
+        try:
+            self._proc.stdin.write((raw_line.rstrip("\n") + "\n").encode("utf-8"))
+        except (BrokenPipeError, OSError) as exc:
             raise GogamenProtocolError(
-                f"EOF inesperado del servidor de protocolo: {stderr_out.strip()}",
+                f"no se pudo escribir al servidor: {exc}; stderr: {self.stderr_tail().strip()}",
+                code="ProcessExited",
+            ) from exc
+
+        try:
+            raw = self._stdout_queue.get(timeout=self._request_timeout)
+        except queue.Empty:
+            raise self._timeout("sin respuesta del servidor de protocolo") from None
+        if raw is None:
+            self._stdout_queue.put(None)
+            self._stderr_thread.join(timeout=1.0)
+            raise GogamenProtocolError(
+                f"EOF inesperado del servidor de protocolo: {self.stderr_tail().strip()}",
                 code="UnexpectedEOF",
             )
+        response_line = raw.decode("utf-8", errors="replace")
 
         try:
             payload = json.loads(response_line)

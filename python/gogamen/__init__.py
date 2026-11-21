@@ -19,6 +19,7 @@ from .errors import (
     GogamenDomainError,
     GogamenError,
     GogamenProtocolError,
+    GogamenTimeoutError,
     GogamenSessionError,
 )
 
@@ -32,6 +33,7 @@ __all__ = [
     "GogamenDomainError",
     "GogamenError",
     "GogamenProtocolError",
+    "GogamenTimeoutError",
     "GogamenSessionError",
     "GridSession",
     "ProtocolEvent",
