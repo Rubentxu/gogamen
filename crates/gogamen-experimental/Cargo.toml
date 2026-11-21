@@ -1,0 +1,25 @@
+[package]
+name = "gogamen-experimental"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Opt-in experimental ports (visual/Box perception, generative System Two) that abstain by default; every generated candidate is validated by catalog, ActionGuard and provenance, and is never part of the critical control loop."
+
+[features]
+default = []
+# Pulls the lab dialog fixtures to run the cost/benefit harness against the local baseline.
+lab-baseline = ["dep:gogamen-lab-mujoco"]
+
+[dependencies]
+gogamen-core = { path = "../gogamen-core" }
+gogamen-lab-mujoco = { path = "../../labs/mujoco", optional = true }
+
+[[test]]
+name = "compare"
+path = "tests/compare.rs"
+required-features = ["lab-baseline"]
+
+[[example]]
+name = "cost_benefit"
+path = "examples/cost_benefit.rs"
+required-features = ["lab-baseline"]
